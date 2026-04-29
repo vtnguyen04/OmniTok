@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# ML artifacts
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# Logging
+wandb/
+outputs/
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
