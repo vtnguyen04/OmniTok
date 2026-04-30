@@ -135,6 +135,14 @@ class TestTeacherRegistry:
         """SigLIP teacher is registered."""
         assert "siglip" in TEACHER_REGISTRY
 
+    def test_sam_registered(self):
+        """SAM teacher is registered."""
+        assert "sam" in TEACHER_REGISTRY
+
+    def test_depth_anything_registered(self):
+        """Depth Anything teacher is registered."""
+        assert "depth_anything" in TEACHER_REGISTRY
+
     def test_available_teachers(self):
-        """At least 2 teachers registered."""
-        assert len(TEACHER_REGISTRY) >= 2
+        """At least 4 teachers registered."""
+        assert len(TEACHER_REGISTRY) >= 4
