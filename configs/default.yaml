@@ -1,0 +1,87 @@
+# OmniTok Default Config — Stage 1 Tokenizer Training
+# Override any field via CLI: python train.py encoder.embed_dim=384
+
+# --- Model ---
+encoder:
+  img_size: 256
+  patch_size: 16
+  embed_dim: 768
+  depth: 12
+  num_heads: 12
+  ffn_layer: "mlp"
+  norm_layer: "layernorm"
+  vit_feature_bottleneck: 32
+
+decoder:
+  in_chans: 32
+  out_chans: 3
+  upscale_factor: 16
+  embed_dim: 768
+  depth: 12
+  num_heads: 12
+  ffn_layer: "mlp"
+  norm_layer: "layernorm"
+
+# --- Teachers ---
+teachers:
+  dinov2:
+    model_name: "dinov2_vitl14"
+  # siglip:
+  #   model_name: "siglip_vit_l16_256"
+
+alignment:
+  type: "cosine"  # cosine | mse | smooth_l1 | relational_kd | prediction
+  weight: 1.0
+  # For prediction type:
+  # student_dim: 768
+  # teacher_dim: 1024
+  # hidden_dim: 512
+
+# --- Losses ---
+losses:
+  reconstruction:
+    recon_type: "l1"
+    recon_weight: 1.0
+    perceptual_weight: 1.0
+  kl:
+    weight: 1e-6
+  gan:
+    enabled: false
+    n_layers: 3
+    disc_start: 50000
+    disc_weight: 0.5
+    lecam_weight: 0.01
+
+# --- Data ---
+data:
+  root: "/path/to/imagenet/train"
+  image_size: 256
+  batch_size: 32
+  num_workers: 8
+  pin_memory: true
+
+# --- Training ---
+training:
+  max_steps: 200000
+  seed: 42
+  mixed_precision: "bf16"
+  grad_accum_steps: 1
+  grad_clip: 1.0
+  ema_decay: 0.9999
+  log_every: 100
+  save_every: 10000
+  output_dir: "outputs/tokenizer"
+  use_wandb: true
+
+# --- Optimizer ---
+optimizer:
+  type: "adamw"
+  lr: 1e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+
+# --- Scheduler ---
+scheduler:
+  type: "cosine"
+  warmup_steps: 5000
+  min_lr: 1e-6
