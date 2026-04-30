@@ -100,5 +100,5 @@ class DinoVisionTransformerWithBottleneck(DinoVisionTransformer):
         """Encode images to latent features."""
         output = self.forward_features(x)
         b, n, c = output['x_norm_patchtokens'].shape
-        h, w = x.shape[-2] // 16, x.shape[-1] // 16
+        h, w = x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size
         return output['x_norm_patchtokens'].reshape(b, h, w, c).permute(0, 3, 1, 2)
