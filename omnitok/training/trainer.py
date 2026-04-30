@@ -29,6 +29,8 @@ from ..teachers.multi_teacher import MultiTeacher
 from ..losses.reconstruction import ReconstructionLoss
 from ..losses.gan import GANLoss
 from .utils import update_ema, count_params, save_checkpoint, load_checkpoint
+from ..utils.logger import OmniTokLogger
+from ..utils.metrics import MetricsTracker
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ class TokenizerTrainer:
         self.output_dir = self.config.get("output_dir", "outputs")
         self.use_wandb = self.config.get("use_wandb", True)
         self.seed = self.config.get("seed", 42)
+        self.log_dir = self.config.get("log_dir", os.path.join(self.output_dir, "logs"))
 
         # Setup Accelerator
         self.accelerator = Accelerator(
@@ -116,6 +119,15 @@ class TokenizerTrainer:
         self.global_step = 0
         self.epoch = 0
 
+        # Research infrastructure
+        self.omni_logger = OmniTokLogger(
+            name=self.config.get("exp_name", "omnitok"),
+            rank=0,  # updated after accelerator.prepare
+            log_dir=self.log_dir,
+            verbose=self.config.get("verbose", False),
+        )
+        self.metrics = MetricsTracker(window_size=self.config.get("metrics_window", 100))
+
     def _prepare(self) -> None:
         """Prepare models and data with Accelerator."""
         prepared = self.accelerator.prepare(
@@ -139,12 +151,16 @@ class TokenizerTrainer:
             self.teachers = self.teachers.to(self.accelerator.device)
             self.teachers.eval()
 
+        # Sync logger rank after accelerator is ready
+        self.omni_logger.rank = 0 if self.accelerator.is_main_process else 1
+
     def train(self) -> None:
         """Main training loop."""
         if self.accelerator.is_main_process:
-            logger.info(f"Starting training for {self.max_steps} steps")
+            self.omni_logger.print_banner()
             params = count_params(self.accelerator.unwrap_model(self.tokenizer))
-            logger.info(f"Tokenizer params: {params['trainable_M']:.1f}M trainable")
+            self.omni_logger.print_model_summary(params)
+            self.omni_logger.info(f"Starting training for {self.max_steps} steps")
 
             if self.use_wandb:
                 self.accelerator.init_trackers(
@@ -276,25 +292,29 @@ class TokenizerTrainer:
         }
 
     def _log(self, loss_dict: Dict[str, float], pbar: tqdm) -> None:
-        """Log metrics to wandb and progress bar."""
+        """Log metrics to wandb, MetricsTracker, and progress bar."""
         if self.accelerator.is_main_process:
+            # Accumulate into MetricsTracker
+            self.metrics.update_dict(loss_dict, step=self.global_step)
+
             # Progress bar
             pbar.set_postfix({
-                "loss": f"{loss_dict.get('loss/total', 0):.4f}",
-                "recon": f"{loss_dict.get('loss/recon_pixel', 0):.4f}",
+                "loss": f"{self.metrics.get_smooth('loss/total'):.4f}",
+                "recon": f"{self.metrics.get_smooth('loss/recon_pixel'):.4f}",
                 "step": self.global_step,
                 "epoch": self.epoch,
             })
 
             # WandB
             if self.use_wandb:
+                lr = self.optimizer.param_groups[0]["lr"]
                 self.accelerator.log(
-                    {**loss_dict, "train/epoch": self.epoch, "train/lr": self.optimizer.param_groups[0]["lr"]},
+                    {**loss_dict, "train/epoch": self.epoch, "train/lr": lr},
                     step=self.global_step,
                 )
 
     def _save(self) -> None:
-        """Save checkpoint (main process only)."""
+        """Save checkpoint and metrics (main process only)."""
         if self.accelerator.is_main_process:
             save_dir = os.path.join(self.output_dir, "checkpoints")
             unwrapped = self.accelerator.unwrap_model(self.tokenizer)
@@ -306,6 +326,11 @@ class TokenizerTrainer:
                 epoch=self.epoch,
                 save_dir=save_dir,
             )
+            # Persist metrics alongside checkpoints
+            self.metrics.export_json(
+                os.path.join(self.output_dir, "metrics.json")
+            )
+            self.omni_logger.success(f"Checkpoint + metrics saved at step {self.global_step}")
 
     def resume(self, ckpt_path: str) -> None:
         """Resume training from checkpoint.
