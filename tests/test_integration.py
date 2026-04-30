@@ -190,7 +190,7 @@ class TestTokenizerWithTeachers:
         """PredictionAlignmentLoss with learnable predictor MLP."""
         teacher = FakeTeacher(feat_dim=64, p_size=8)
         # student_dim=32 because bottleneck reduces 128→32
-        alignment = PredictionAlignmentLoss(student_dim=32, teacher_dim=64, hidden_dim=48)
+        alignment = PredictionAlignmentLoss(student_dim=32, teacher_dim=64, embed_dim=48)
 
         tokenizer.train()
         out = tokenizer(fake_images, return_features=True)

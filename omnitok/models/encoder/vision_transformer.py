@@ -218,13 +218,55 @@ class DinoVisionTransformer(nn.Module):
 
         return x, (H, W)
 
-    def forward_features_list(self, x_list: List[Tensor], masks_list: List[Tensor], drop_ratio: Optional[float] = None) -> List[Dict[str, Tensor]]:
-        x = []
+    def forward_features_list(
+        self,
+        x_list: List[Tensor],
+        masks_list: List[Tensor],
+        drop_ratio: Optional[float] = None,
+        return_mask: bool = False,
+        mask_ratio: float = 0.5,
+    ) -> List[Dict[str, Tensor]]:
+        all_x = []
+        all_generated_masks = []
         rope = []
         for t_x, t_masks in zip(x_list, masks_list):
             t2_x, hw_tuple = self.prepare_tokens_with_masks(t_x, t_masks)
-            x.append(t2_x)
+
+            generated_mask = None
+            if return_mask and self.training and mask_ratio > 0:
+                # Generate random mask: 1 = kept, 0 = masked
+                B, N, D = t2_x.shape
+                # N includes cls_token and storage_tokens, we only mask patch tokens
+                num_specials = self.n_storage_tokens + 1
+                num_patches = N - num_specials
+
+                noise = torch.rand(B, num_patches, device=t2_x.device)
+                ids_shuffle = torch.argsort(noise, dim=1)
+
+                # Number of patches to keep
+                len_keep = int(num_patches * (1 - mask_ratio))
+
+                # Generate binary mask
+                patch_mask = torch.zeros(B, num_patches, device=t2_x.device)
+                for b in range(B):
+                    patch_mask[b, ids_shuffle[b, :len_keep]] = 1.0
+
+                # Replace masked tokens with mask_token
+                # Expand mask to spatial dimensions
+                mask_expanded = patch_mask.unsqueeze(-1).expand(-1, -1, D)
+                patches = t2_x[:, num_specials:]
+
+                # where(condition, input, other): if condition is True, yield input, else other
+                patches = torch.where(mask_expanded.bool(), patches, self.mask_token.to(t2_x.dtype))
+                t2_x = torch.cat([t2_x[:, :num_specials], patches], dim=1)
+
+                generated_mask = patch_mask
+
+            all_x.append(t2_x)
+            all_generated_masks.append(generated_mask)
             rope.append(hw_tuple)
+
+        x = all_x
         for _, blk in enumerate(self.blocks):
             if self.rope_embed is not None:
                 rope_sincos = [self.rope_embed(H=H, W=W) for H, W in rope]
@@ -253,15 +295,23 @@ class DinoVisionTransformer(nn.Module):
                     "x_norm_patchtokens": x_norm_patch,
                     "x_prenorm": x,
                     "masks": masks,
+                    "generated_mask": all_generated_masks[idx],
                 }
             )
         return output
 
-    def forward_features(self, x: Union[Tensor, List[Tensor]], masks: Optional[Tensor] = None, drop_ratio: Optional[float] = None) -> List[Dict[str, Tensor]]:
+    def forward_features(
+        self,
+        x: Union[Tensor, List[Tensor]],
+        masks: Optional[Tensor] = None,
+        drop_ratio: Optional[float] = None,
+        return_mask: bool = False,
+        mask_ratio: float = 0.5,
+    ) -> List[Dict[str, Tensor]]:
         if isinstance(x, torch.Tensor):
-            return self.forward_features_list([x], [masks], drop_ratio=drop_ratio)[0]
+            return self.forward_features_list([x], [masks], drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio)[0]
         else:
-            return self.forward_features_list(x, masks, drop_ratio=drop_ratio)
+            return self.forward_features_list(x, masks, drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio)
 
     def _get_intermediate_layers_not_chunked(self, x: Tensor, n: int = 1) -> List[Tensor]:
         x, (H, W) = self.prepare_tokens_with_masks(x)

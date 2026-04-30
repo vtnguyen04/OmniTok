@@ -15,9 +15,10 @@ Usage:
     accelerate launch train.py +experiment=T5_multi_dino_siglip
 """
 
+import copy
+import logging
 import os
-import sys
-
+import inspect
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -39,19 +40,28 @@ def _build_tokenizer(cfg: DictConfig, log: OmniTokLogger) -> "Tokenizer":
         Tokenizer model instance.
     """
     from omnitok.models.tokenizer import Tokenizer
+    from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
+    from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
 
-    tokenizer = Tokenizer(
-        img_size=cfg.encoder.img_size,
-        patch_size=cfg.encoder.patch_size,
-        embed_dim=cfg.encoder.embed_dim,
-        encoder_depth=cfg.encoder.depth,
-        encoder_num_heads=cfg.encoder.num_heads,
-        decoder_embed_dim=cfg.decoder.embed_dim,
-        decoder_depth=cfg.decoder.depth,
-        decoder_num_heads=cfg.decoder.num_heads,
-        bottleneck_dim=cfg.encoder.get("vit_feature_bottleneck", 32),
-        decoder_out_chans=cfg.decoder.get("out_chans", 3),
+    encoder = DinoVisionTransformerWithBottleneck(
+        img_size=cfg.model.encoder.img_size,
+        patch_size=cfg.model.encoder.patch_size,
+        embed_dim=cfg.model.encoder.embed_dim,
+        depth=cfg.model.encoder.depth,
+        num_heads=cfg.model.encoder.num_heads,
+        vit_feature_bottleneck=cfg.model.encoder.get("vit_feature_bottleneck", 32),
     )
+
+    decoder = DinoV3PixelDecoder(
+        in_chans=cfg.model.encoder.get("vit_feature_bottleneck", 32),
+        out_chans=cfg.model.decoder.get("out_chans", 3),
+        upscale_factor=cfg.model.decoder.get("upscale_factor", 16),
+        embed_dim=cfg.model.decoder.embed_dim,
+        depth=cfg.model.decoder.depth,
+        num_heads=cfg.model.decoder.num_heads,
+    )
+
+    tokenizer = Tokenizer(encoder=encoder, decoder=decoder)
     from omnitok.training.utils import count_params
     params = count_params(tokenizer)
     log.encoder(f"Built Tokenizer: {params.get('total', 0):,} params")
@@ -70,23 +80,48 @@ def _build_teachers(cfg: DictConfig, log: OmniTokLogger):
         MultiTeacher instance or None if no teachers configured.
     """
     from omnitok.teachers.multi_teacher import MultiTeacher
+    from omnitok.registry import TEACHER_REGISTRY
 
     teacher_configs = {}
-    if hasattr(cfg, "teachers"):
-        for name, t_cfg in cfg.teachers.items():
-            if t_cfg is not None:
-                teacher_configs[name] = t_cfg
+    teacher_node = getattr(cfg, "teacher", getattr(cfg, "teachers", None))
+
+    if teacher_node is not None and teacher_node.get("enabled", True):
+        names = teacher_node.get("names", [])
+        if not names and "dinov2" in teacher_node:
+            names = ["dinov2"] # fallback
+        for name in names:
+            if name in teacher_node:
+                teacher_configs[name] = teacher_node[name]
 
     if not teacher_configs:
         log.warning("No teachers configured — training without alignment")
         return None
 
-    teacher = MultiTeacher(teacher_configs)
+    instantiated_teachers = {}
+    for name, t_cfg in teacher_configs.items():
+        kwargs = {k: v for k, v in t_cfg.items() if k != "type"}
+        teacher_type = t_cfg.get("type", name)
+
+        if teacher_type in TEACHER_REGISTRY:
+            # Filter kwargs to only those accepted by the teacher's constructor
+            teacher_cls = TEACHER_REGISTRY._registry[teacher_type]
+            sig = inspect.signature(teacher_cls.__init__)
+            valid_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            
+            instantiated_teachers[name] = TEACHER_REGISTRY.build(teacher_type, **valid_kwargs)
+        else:
+            log.warning(f"Teacher {teacher_type} not found in registry. Skipping.")
+
+    if not instantiated_teachers:
+        log.warning("No teachers could be instantiated — training without alignment")
+        return None
+
+    teacher = MultiTeacher(instantiated_teachers)
     teacher.eval()
     for p in teacher.parameters():
         p.requires_grad = False
 
-    log.teacher(f"Built {len(teacher_configs)} teachers: {list(teacher_configs.keys())}")
+    log.teacher(f"Built {len(instantiated_teachers)} teachers: {list(instantiated_teachers.keys())}")
     return teacher
 
 
@@ -106,8 +141,7 @@ def _build_alignment_loss(cfg: DictConfig, log: OmniTokLogger):
     kwargs = OmegaConf.to_container(cfg.alignment, resolve=True)
     kwargs.pop("type", None)
     kwargs.pop("weight", None)
-    # Remove non-constructor keys
-    kwargs.pop("projector", None)
+    # Pass projector parameters to the loss function constructor
 
     loss_fn = ALIGNMENT_REGISTRY.build(align_type, **kwargs)
     log.loss(f"Alignment: {align_type} (weight={cfg.alignment.get('weight', 1.0)})")
@@ -127,33 +161,39 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
     from omnitok.losses.reconstruction import ReconstructionLoss
     from omnitok.losses.gan import GANLoss
 
-    recon_cfg = cfg.losses.reconstruction
-    recon_loss = ReconstructionLoss(
-        recon_type=recon_cfg.get("recon_type", "l1"),
-        recon_weight=recon_cfg.get("recon_weight", 1.0),
-        perceptual_weight=recon_cfg.get("perceptual_weight", 1.0),
-    )
-    log.loss(f"Recon: {recon_cfg.get('recon_type', 'l1')} + LPIPS(w={recon_cfg.get('perceptual_weight', 1.0)})")
+    recon_loss = None
+    if "loss" in cfg and "reconstruction" in cfg.loss:
+        recon_cfg = cfg.loss.reconstruction
+        if recon_cfg.get("recon_weight", 0.0) > 0.0 or recon_cfg.get("perceptual_weight", 0.0) > 0.0:
+            recon_loss = ReconstructionLoss(
+                recon_type=recon_cfg.get("recon_type", "l1"),
+                recon_weight=recon_cfg.get("recon_weight", 1.0),
+                perceptual_weight=recon_cfg.get("perceptual_weight", 1.0),
+            )
+            log.loss(f"Recon: {recon_cfg.get('recon_type', 'l1')} + LPIPS(w={recon_cfg.get('perceptual_weight', 1.0)})")
 
     gan_loss = None
-    if cfg.losses.gan.get("enabled", False):
-        gan_loss = GANLoss(
-            n_layers=cfg.losses.gan.get("n_layers", 3),
-            disc_start=cfg.losses.gan.get("disc_start", 50000),
-            disc_weight=cfg.losses.gan.get("disc_weight", 0.5),
-            lecam_weight=cfg.losses.gan.get("lecam_weight", 0.01),
-        )
-        log.gan(f"GAN enabled (start={cfg.losses.gan.disc_start}, weight={cfg.losses.gan.disc_weight})")
+    if "loss" in cfg and "gan" in cfg.loss:
+        gan_cfg = cfg.loss.gan
+        if gan_cfg.get("enabled", False):
+            gan_loss = GANLoss(
+                n_layers=gan_cfg.get("n_layers", 3),
+                disc_start=gan_cfg.get("disc_start", 50000),
+                disc_weight=gan_cfg.get("disc_weight", 0.5),
+                lecam_weight=gan_cfg.get("lecam_weight", 0.01),
+            )
+            log.gan(f"GAN enabled (start={gan_cfg.get('disc_start', 50000)}, weight={gan_cfg.get('disc_weight', 0.5)})")
 
     gaussianity_loss = None
-    gauss_cfg = cfg.losses.get("gaussianity", {})
-    if gauss_cfg and gauss_cfg.get("enabled", False):
-        from omnitok.losses.gaussianity import GaussianityLoss
-        gaussianity_loss = GaussianityLoss(
-            weight=gauss_cfg.get("weight", 1e-4),
-            mean_penalty=gauss_cfg.get("mean_penalty", True),
-        )
-        log.loss(f"GaussianityLoss enabled (weight={gauss_cfg.get('weight', 1e-4)})")
+    if "loss" in cfg and "gaussianity" in cfg.loss:
+        gauss_cfg = cfg.loss.gaussianity
+        if gauss_cfg.get("enabled", False) and gauss_cfg.get("weight", 0.0) > 0.0:
+            from omnitok.losses.gaussianity import GaussianityLoss
+            gaussianity_loss = GaussianityLoss(
+                weight=gauss_cfg.get("weight", 1e-4),
+                mean_penalty=gauss_cfg.get("mean_penalty", True),
+            )
+            log.loss(f"GaussianityLoss enabled (weight={gauss_cfg.get('weight', 1e-4)})")
 
     return recon_loss, gan_loss, gaussianity_loss
 
@@ -200,11 +240,9 @@ def _build_dataloader(cfg: DictConfig, log: OmniTokLogger):
         DataLoader instance.
     """
     from omnitok.data.datasets import ImageFolderDataset
-    from omnitok.data.transforms import build_train_transform
     from torch.utils.data import DataLoader
 
-    transform = build_train_transform(cfg.data.image_size)
-    dataset = ImageFolderDataset(root=cfg.data.root, transform=transform)
+    dataset = ImageFolderDataset(root=cfg.data.root, image_size=cfg.data.image_size, split="train")
 
     log.info(f"Dataset: {len(dataset)} images from {cfg.data.root}")
     log.info(f"Batch: {cfg.data.batch_size} × {cfg.data.get('num_workers', 8)} workers")

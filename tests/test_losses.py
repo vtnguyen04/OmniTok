@@ -68,7 +68,7 @@ class TestPredictionAlignmentLoss:
     """Tests for prediction alignment loss (from MAETok)."""
 
     def test_output_is_scalar(self):
-        loss_fn = PredictionAlignmentLoss(student_dim=32, teacher_dim=64, hidden_dim=48)
+        loss_fn = PredictionAlignmentLoss(student_dim=32, teacher_dim=64, embed_dim=48)
         s = torch.randn(2, 16, 32)
         t = torch.randn(2, 16, 64)
         loss = loss_fn(s, t)

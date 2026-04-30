@@ -1,9 +1,8 @@
 import logging
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 import torch
 import torch.nn as nn
-from torch import Tensor
 
 from .vision_transformer import DinoVisionTransformer
 
@@ -46,8 +45,14 @@ class DinoVisionTransformerWithBottleneck(DinoVisionTransformer):
         return features
 
     def forward_features(self, x: Union[torch.Tensor, List[torch.Tensor]], masks: Optional[torch.Tensor] = None, **kwargs):
-        # Propagate drop_ratio down to parent
-        output = super().forward_features(x, masks, drop_ratio=kwargs.get('drop_ratio', None))
+        # Propagate arguments down to parent
+        output = super().forward_features(
+            x,
+            masks,
+            drop_ratio=kwargs.get('drop_ratio', None),
+            return_mask=kwargs.get('return_mask', False),
+            mask_ratio=kwargs.get('mask_ratio', 0.5),
+        )
 
         use_bottleneck = kwargs.get('use_bottleneck', True)
 

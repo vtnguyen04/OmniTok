@@ -1,12 +1,12 @@
 """Relational Knowledge Distillation alignment loss.
 
-Ported from VA-VAE: aligns pairwise token relationships rather than
-individual features. More robust to representation gap between student/teacher.
-
-Reference: Park et al. "Relational Knowledge Distillation" (CVPR 2019)
+Supports multiple modes:
+- 'mse': Standard Relational KD (CVPR 2019) using MSE between distance matrices.
+- 'relu_margin': VA-VAE (LightningDiT) style using ReLU(diff - margin).
 """
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -16,33 +16,60 @@ from .base import BaseAlignmentLoss
 
 @ALIGNMENT_REGISTRY.register("relational_kd")
 class RelationalKDLoss(BaseAlignmentLoss):
-    """Relational Knowledge Distillation alignment.
-
-    Instead of aligning individual features, aligns the pairwise distance
-    structure between tokens. This captures "relationships" between patches
-    rather than absolute feature values.
-
-    L = MSE(D_student, D_teacher) where D = pairwise cosine distance matrix.
+    """Flexible Relational Knowledge Distillation alignment.
 
     Args:
+        mode: "mse" (standard RKD) or "relu_margin" (VA-VAE style).
         distance_type: "cosine" or "l2" for pairwise distance computation.
+        distmat_margin: Margin for "relu_margin" mode.
+        distmat_weight: Weight for the relational component.
+        cos_margin: Margin for the direct cosine component.
+        cos_weight: Weight for the direct cosine component.
+        projector: "linear", "mlp", or None.
+        student_dim: Student feature dimension (for projector).
+        teacher_dim: Teacher feature dimension.
+        projector_hidden_dim: Hidden dim for MLP projector.
     """
 
-    def __init__(self, distance_type: str = "cosine") -> None:
+    def __init__(
+        self,
+        mode: str = "relu_margin",
+        distance_type: str = "cosine",
+        distmat_margin: float = 0.2,
+        distmat_weight: float = 1.0,
+        cos_margin: float = 0.0,
+        cos_weight: float = 0.0,
+        projector: str = None,
+        student_dim: int = 64,
+        teacher_dim: int = 1024,
+        projector_hidden_dim: int = 0,
+    ) -> None:
         super().__init__()
+        self.mode = mode
         self.distance_type = distance_type
+        self.distmat_margin = distmat_margin
+        self.distmat_weight = distmat_weight
+        self.cos_margin = cos_margin
+        self.cos_weight = cos_weight
+
+        if projector == "mlp":
+            hidden = projector_hidden_dim if projector_hidden_dim > 0 else teacher_dim
+            self.projector = nn.Sequential(
+                nn.Linear(student_dim, hidden),
+                nn.SiLU(),
+                nn.Linear(hidden, hidden),
+                nn.SiLU(),
+                nn.Linear(hidden, teacher_dim),
+            )
+        elif projector == "linear":
+            self.projector = nn.Linear(student_dim, teacher_dim, bias=False)
+        else:
+            self.projector = None
 
     def _pairwise_distance(self, x: Tensor) -> Tensor:
-        """Compute pairwise distance matrix.
-
-        Args:
-            x: Features (B, N, D).
-
-        Returns:
-            Distance matrix (B, N, N).
-        """
         if self.distance_type == "cosine":
             x_norm = F.normalize(x, dim=-1)
+            # Distance matrix: 1 - cosine similarity
             return 1 - torch.bmm(x_norm, x_norm.transpose(1, 2))
         elif self.distance_type == "l2":
             diff = x.unsqueeze(2) - x.unsqueeze(1)
@@ -51,20 +78,37 @@ class RelationalKDLoss(BaseAlignmentLoss):
             raise ValueError(f"Unknown distance_type: {self.distance_type}")
 
     def compute(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
-        """Compute relational KD loss.
+        if self.projector is not None:
+            z = self.projector(student_features)
+        else:
+            z = student_features
 
-        Args:
-            student_features: (B, N, D_s).
-            teacher_features: (B, N, D_t).
+        aux_feature = teacher_features.detach()
 
-        Returns:
-            Scalar loss.
-        """
-        d_student = self._pairwise_distance(student_features)
-        d_teacher = self._pairwise_distance(teacher_features.detach())
+        # Direct cosine component
+        vf_loss_2 = torch.tensor(0.0, device=z.device)
+        if self.cos_weight > 0.0:
+            z_norm = F.normalize(z, dim=-1)
+            aux_norm = F.normalize(aux_feature, dim=-1)
+            cos_sim = (z_norm * aux_norm).sum(dim=-1)
+            vf_loss_2 = F.relu(1 - self.cos_margin - cos_sim).mean()
 
-        # Normalize distances to mean=0, std=1 per batch for scale-invariance
-        d_student = (d_student - d_student.mean()) / (d_student.std() + 1e-6)
-        d_teacher = (d_teacher - d_teacher.mean()) / (d_teacher.std() + 1e-6)
+        # Relational component
+        vf_loss_1 = torch.tensor(0.0, device=z.device)
+        if self.distmat_weight > 0.0:
+            d_student = self._pairwise_distance(z)
+            d_teacher = self._pairwise_distance(aux_feature)
 
-        return F.mse_loss(d_student, d_teacher)
+            if self.mode == "relu_margin":
+                diff = torch.abs(d_student - d_teacher)
+                vf_loss_1 = F.relu(diff - self.distmat_margin).mean()
+            elif self.mode == "mse":
+                # Standard RKD: normalize distance matrices first
+                d_student = (d_student - d_student.mean()) / (d_student.std() + 1e-6)
+                d_teacher = (d_teacher - d_teacher.mean()) / (d_teacher.std() + 1e-6)
+                vf_loss_1 = F.mse_loss(d_student, d_teacher)
+            else:
+                raise ValueError(f"Unknown mode: {self.mode}")
+
+        vf_loss = vf_loss_1 * self.distmat_weight + vf_loss_2 * self.cos_weight
+        return vf_loss

@@ -15,7 +15,6 @@ Reference:
 import logging
 from typing import Dict, Optional
 
-import numpy as np
 import torch
 from scipy.stats import anderson
 from torch import Tensor

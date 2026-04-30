@@ -12,7 +12,6 @@ Ported training patterns from REPA-E and continuous_tokenizer.
 """
 
 import logging
-import math
 import os
 from copy import deepcopy
 from typing import Any, Dict, Optional
@@ -24,13 +23,13 @@ from accelerate.utils import set_seed
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
+from ..losses.gan import GANLoss
+from ..losses.reconstruction import ReconstructionLoss
 from ..models.tokenizer import Tokenizer
 from ..teachers.multi_teacher import MultiTeacher
-from ..losses.reconstruction import ReconstructionLoss
-from ..losses.gan import GANLoss
-from .utils import update_ema, count_params, save_checkpoint, load_checkpoint
 from ..utils.logger import OmniTokLogger
 from ..utils.metrics import MetricsTracker
+from .utils import count_params, load_checkpoint, save_checkpoint, update_ema
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +111,6 @@ class TokenizerTrainer:
         # DataLoader
         self.train_dataloader = train_dataloader
 
-        # Prepare with Accelerate
-        self._prepare()
-
-        # State
-        self.global_step = 0
-        self.epoch = 0
-
         # Research infrastructure
         self.omni_logger = OmniTokLogger(
             name=self.config.get("exp_name", "omnitok"),
@@ -127,6 +119,13 @@ class TokenizerTrainer:
             verbose=self.config.get("verbose", False),
         )
         self.metrics = MetricsTracker(window_size=self.config.get("metrics_window", 100))
+
+        # Prepare with Accelerate
+        self._prepare()
+
+        # State
+        self.global_step = 0
+        self.epoch = 0
 
     def _prepare(self) -> None:
         """Prepare models and data with Accelerator."""
@@ -142,6 +141,9 @@ class TokenizerTrainer:
 
         if self.alignment_loss is not None:
             self.alignment_loss = self.accelerator.prepare(self.alignment_loss)
+
+        if self.recon_loss is not None:
+            self.recon_loss = self.recon_loss.to(self.accelerator.device)
 
         # EMA stays on device but not wrapped
         self.ema_tokenizer = self.ema_tokenizer.to(self.accelerator.device)
@@ -243,22 +245,22 @@ class TokenizerTrainer:
                 # Student features = encoder patch tokens (before bottleneck)
                 student_tokens = features["x_norm_patchtokens"]
 
-                align_total = torch.zeros(1, device=images.device)
+                align_total = 0.0
                 for t_name, t_feat in teacher_features.items():
                     a_loss = self.alignment_loss(student_tokens, t_feat)
-                    align_total += weights[t_name] * a_loss
+                    align_total = align_total + weights[t_name] * a_loss
                     loss_dict[f"loss/align_{t_name}"] = a_loss.item()
 
                 # Add PHI-S regularization
-                align_total += self.teachers.get_regularization()
-                total_loss += self.alignment_weight * align_total
+                align_total = align_total + self.teachers.get_regularization()
+                total_loss = total_loss + self.alignment_weight * align_total
 
                 loss_dict["loss/align_total"] = align_total.item()
 
             # GAN generator loss
             if self.gan_loss is not None:
                 g_result = self.gan_loss.generator_loss(recon, self.global_step)
-                total_loss += g_result["total"]
+                total_loss = total_loss + g_result["total"]
                 loss_dict["loss/gan_g"] = g_result["gan"].item()
 
             loss_dict["loss/total"] = total_loss.item()

@@ -4,10 +4,13 @@
 # UNE: lý thuyết xác nhận đây là cách đúng hơn direct cosine
 # @package alignment
 type: "relational_kd"
+mode: "relu_margin"     # "mse" (standard) or "relu_margin" (VA-VAE)
 weight: 1.0
-margin: 0.2              # cosine margin (VA-VAE best from Table 3)
-include_direct_cosine: true   # optionally add direct cosine component
+distmat_margin: 0.2              # cosine margin (VA-VAE best from Table 3)
+distmat_weight: 1.0
 cos_margin: 0.0
+cos_weight: 1.0
 # Projector: Linear theo UNE hypothesis (default); compare vs MLP trong T10
 projector: "linear"
 projector_hidden_dim: 0
+student_dim: 32
