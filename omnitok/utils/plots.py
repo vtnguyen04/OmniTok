@@ -9,6 +9,7 @@ import os
 from typing import Dict, List, Optional
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -180,11 +181,12 @@ class PlotGenerator:
         fig, ax = plt.subplots(figsize=(7, 7), subplot_kw={"polar": True})
 
         for name, metric_dict in results.items():
-            values = [metric_dict.get(m, 0.0) for m in metrics]
-            # Normalize each metric to [0, 1] for radar display
-            all_vals = [results[r].get(m, 0.0) for r in results for m in [m]]
-            max_v = max(all_vals) if max(all_vals) != 0 else 1.0
-            norm_vals = [v / max_v for v in values]
+            norm_vals = []
+            for m in metrics:
+                val = metric_dict.get(m, 0.0)
+                all_vals = [results[r].get(m, 0.0) for r in results]
+                max_v = max(all_vals) if max(all_vals) != 0 else 1.0
+                norm_vals.append(val / max_v)
             norm_vals += norm_vals[:1]
             ax.plot(angles, norm_vals, linewidth=1.5, label=name)
             ax.fill(angles, norm_vals, alpha=0.1)
