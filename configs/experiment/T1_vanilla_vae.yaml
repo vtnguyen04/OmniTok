@@ -4,12 +4,12 @@
 # Establishes the floor for all ablation experiments.
 # @package _global_
 defaults:
-  - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: none
-  - override /alignment: none
-  - override /loss: standard
-  - override /training: tokenizer_full
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: none
+  - /alignment: none
+  - /loss: standard
+  - /training: tokenizer_full
   - _self_
 
 exp_name: "T1_vanilla_vae"

@@ -1,11 +1,11 @@
 """Training module — trainers and utilities."""
 
-from .utils import (
-    update_ema,
-    requires_grad,
-    fix_seeds,
-    save_checkpoint,
-    load_checkpoint,
-    count_params,
-)
 from .trainer import TokenizerTrainer
+from .utils import (
+    count_params,
+    fix_seeds,
+    load_checkpoint,
+    requires_grad,
+    save_checkpoint,
+    update_ema,
+)

@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -46,7 +46,7 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
 
     if cache_key not in _GLOBAL_SAMPLING_CACHE:
         if rank == 0:
-            print(f"[Sampling Cache] New configuration detected:")
+            print("[Sampling Cache] New configuration detected:")
             print(f"  - Global batch size: {global_batch}")
             print(f"  - Sample drop ratio: {sample_drop_ratio:.3f}")
             print(f"  - World size: {world_size}")
@@ -78,7 +78,7 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
             print(f"  - Allocation per GPU: {allocation}")
             print(f"  - Actual global samples: {actual_global_keep}")
             print(f"  - Residual scale factor: {residual_scale_factor:.4f}")
-            print(f"  - Saving to cache...")
+            print("  - Saving to cache...")
 
             _GLOBAL_SAMPLING_CACHE[cache_key] = allocation_info
 
@@ -88,7 +88,7 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
                 allocation_info['residual_scale_factor']
             ] + allocation_info['allocation'], dtype=torch.float32, device=x.device)
 
-            print(f"  - Broadcasting allocation to all nodes...")
+            print("  - Broadcasting allocation to all nodes...")
         else:
             payload = torch.zeros(3 + world_size, dtype=torch.float32, device=x.device)
         dist.broadcast(payload, src=0)

@@ -4,12 +4,12 @@
 # Build on T5 (best multi-teacher); compare quality vs compute trade-off
 # @package _global_
 defaults:
-  - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: multi_dino_siglip
-  - override /alignment: relational_kd
-  - override /loss: standard
-  - override /training: tokenizer_full
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: multi_dino_siglip
+  - /alignment: relational_kd
+  - /loss: standard
+  - /training: tokenizer_full
   - _self_
 
 exp_name: "T8_masking75"

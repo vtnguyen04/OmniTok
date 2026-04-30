@@ -4,9 +4,8 @@ This is the main trainable model for Stage 1 tokenizer training.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
-import torch
 import torch.nn as nn
 from torch import Tensor
 

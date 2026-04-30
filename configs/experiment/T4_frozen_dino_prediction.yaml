@@ -4,12 +4,12 @@
 # student_dim must match encoder.vit_feature_bottleneck (64 for ViT-Large)
 # @package _global_
 defaults:
-  - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: dinov2
-  - override /alignment: prediction
-  - override /loss: standard
-  - override /training: tokenizer_full
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: dinov2
+  - /alignment: prediction
+  - /loss: standard
+  - /training: tokenizer_full
   - _self_
 
 exp_name: "T4_frozen_dino_prediction"

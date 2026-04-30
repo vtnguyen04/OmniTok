@@ -1,25 +1,45 @@
-# T_final — Full OmniTok model (winner combination from T0-T10)
-# Compose: best alignment + best teacher combination + GAN + Gaussianity reg
-# This is the model submitted in the paper as the proposed method
-# Defaults assume T5/T9/T10 win; update after seeing ablation results.
 # @package _global_
 defaults:
   - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: multi_dino_siglip
-  - override /alignment: relational_kd
-  - override /loss: with_gan
-  - override /training: tokenizer_full
-  - _self_
+  - override /model/decoder: pixel_decoder
 
-exp_name: "T_final_omnitok"
-notes: "Full OmniTok: best alignment + multi-teacher + GAN + gaussianity reg. Final paper model."
-
-# Best settings from ablation (update after T0-T10 results)
-alignment:
-  projector: "linear"    # T10: linear ≈ MLP3 expected
+# Experiment: T_final - Full OmniTok Architecture
+# 4 Teachers + Prediction/Cosine Alignment + Token Masking + Gaussianity + GAN + LPIPS
+training:
+  max_steps: 2
 
 loss:
-  gaussianity:
-    enabled: true
-    weight: 0.1
+  alignment_weight: 1.0
+  gaussianity_weight: 0.1
+
+model:
+  encoder:
+    token_drop_rate: 0.5  
+
+teacher:
+  _target_: omnitok.teachers.multi_teacher.MultiTeacher
+  teachers:
+    dinov2:
+      _target_: omnitok.teachers.dinov2.DINOv2Teacher
+      model_name: dinov2_vitl14
+    siglip:
+      _target_: omnitok.teachers.siglip.SigLIPTeacher
+      model_name: siglip_so400m
+    sam:
+      _target_: omnitok.teachers.sam.SAMTeacher
+      model_name: sam_vit_b
+    depth:
+      _target_: omnitok.teachers.depth_anything.DepthAnythingTeacher
+      model_name: depth_anything_v2_small
+
+alignment:
+  # Using Prediction alignment for multi-teacher 
+  # OR using Cosine Alignment with an MLP projector.
+  # Based on Phase 7 plan, we can use Prediction or Cosine. 
+  _target_: omnitok.losses.alignment.prediction.PredictionAlignmentLoss
+  student_dim: 32
+  teacher_dim: 1024
+  embed_dim: 512
+
+data:
+  batch_size: 2

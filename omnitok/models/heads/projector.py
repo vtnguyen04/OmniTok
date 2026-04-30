@@ -8,9 +8,7 @@ Ablation study (from UNE paper):
 All projectors are registered in PROJECTOR_REGISTRY.
 """
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 from omnitok.registry import PROJECTOR_REGISTRY

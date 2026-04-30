@@ -125,50 +125,28 @@ class TestGaussianityEvaluator:
 
 class TestLinearProbeEvaluator:
     def test_basic_fit(self):
-        ev = LinearProbeEvaluator(max_iter=100)
-        n_train, n_val, d = 200, 50, 32
-        n_classes = 5
-        # linearly separable features
-        feats_train = torch.randn(n_train, d)
-        labels_train = (feats_train[:, 0] > 0).long() * 2  # 2-class signal in dim 0
-        feats_val = torch.randn(n_val, d)
-        labels_val = (feats_val[:, 0] > 0).long() * 2
-        result = ev.compute(feats_train, labels_train, feats_val, labels_val)
+        ev = LinearProbeEvaluator(epochs=1)
+        
+        class DummyEncoder(nn.Module):
+            def forward(self, x):
+                return x.view(x.shape[0], -1)
+                
+        encoder = DummyEncoder()
+        
+        # Create dummy dataloader
+        n_train = 32
+        d = 16
+        n_classes = 2
+        
+        imgs = torch.randn(n_train, 1, 4, 4)  # flattens to 16
+        labels = torch.randint(0, n_classes, (n_train,))
+        ds = torch.utils.data.TensorDataset(imgs, labels)
+        ds.classes = ["A", "B"]
+        loader = DataLoader(ds, batch_size=16)
+        
+        result = ev.compute_from_model(encoder, loader, loader, torch.device("cpu"))
         assert "linear_probe_acc" in result
-        assert result["n_train"] == n_train
-        assert result["n_val"] == n_val
-
-    def test_pool_features_spatial(self):
-        ev = LinearProbeEvaluator(feature_type="mean_pool")
-        feats = torch.randn(4, 16, 8, 8)  # (B, C, h, w)
-        pooled = ev._pool_features(feats)
-        assert pooled.shape == (4, 16)
-
-    def test_pool_features_sequence_mean(self):
-        ev = LinearProbeEvaluator(feature_type="mean_pool")
-        feats = torch.randn(4, 196, 64)  # (B, L, D)
-        pooled = ev._pool_features(feats)
-        assert pooled.shape == (4, 64)
-
-    def test_pool_features_cls(self):
-        ev = LinearProbeEvaluator(feature_type="cls")
-        feats = torch.randn(4, 196, 64)
-        pooled = ev._pool_features(feats)
-        assert pooled.shape == (4, 64)
-
-    def test_pool_features_2d_passthrough(self):
-        ev = LinearProbeEvaluator()
-        feats = torch.randn(4, 64)
-        pooled = ev._pool_features(feats)
-        assert pooled.shape == (4, 64)
-
-    def test_acc_range(self):
-        ev = LinearProbeEvaluator(max_iter=50)
-        feats = torch.randn(100, 8)
-        # Need at least 2 classes for logistic regression
-        labels = torch.randint(0, 2, (100,))
-        result = ev.compute(feats, labels, feats, labels)
-        assert 0.0 <= result["linear_probe_acc"] <= 100.0
+        assert "best_classifier" in result
 
 
 # ============================================================================

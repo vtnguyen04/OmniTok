@@ -9,6 +9,7 @@ Reference:
 """
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -31,16 +32,41 @@ class CosineAlignmentLoss(BaseAlignmentLoss):
     uses negative dot product of L2-normalized vectors.
     """
 
+    def __init__(
+        self,
+        projector: str = None,
+        student_dim: int = 64,
+        teacher_dim: int = 1024,
+        projector_hidden_dim: int = 2048,
+    ) -> None:
+        super().__init__()
+        self.projector_type = projector
+        if projector == "mlp":
+            self.projector = nn.Sequential(
+                nn.Linear(student_dim, projector_hidden_dim),
+                nn.SiLU(),
+                nn.Linear(projector_hidden_dim, projector_hidden_dim),
+                nn.SiLU(),
+                nn.Linear(projector_hidden_dim, teacher_dim),
+            )
+        elif projector == "linear":
+            self.projector = nn.Linear(student_dim, teacher_dim, bias=False)
+        else:
+            self.projector = None
+
     def compute(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
         """Compute cosine alignment loss.
 
         Args:
-            student_features: (B, N, D) student (tokenizer encoder) features.
-            teacher_features: (B, N, D) teacher (VFM) features. Must be same N.
+            student_features: (B, N, D_s) student (tokenizer encoder) features.
+            teacher_features: (B, N, D_t) teacher (VFM) features. Must be same N.
 
         Returns:
             Scalar loss (lower = better alignment).
         """
+        if self.projector is not None:
+            student_features = self.projector(student_features)
+
         student_norm = F.normalize(student_features, dim=-1)
         teacher_norm = F.normalize(teacher_features.detach(), dim=-1)
         loss = mean_flat(-(student_norm * teacher_norm).sum(dim=-1))

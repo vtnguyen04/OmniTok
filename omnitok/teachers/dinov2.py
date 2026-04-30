@@ -55,11 +55,20 @@ class DINOv2Teacher(BaseTeacher):
         """Extract patch features from DINOv2 (no CLS token).
 
         Args:
-            x: Input images (B, 3, H, W). H, W must be divisible by patch_size.
+            x: Input images (B, 3, H, W). If not divisible by patch_size, it will be interpolated.
 
         Returns:
-            Patch features (B, N, D) where N = (H/14) * (W/14).
+            Patch features (B, N, D).
         """
+        B, C, H, W = x.shape
+        if H % self.patch_size != 0 or W % self.patch_size != 0:
+            # Scale to match the same number of patches assuming student patch_size=16
+            target_H = (H // 16) * self.patch_size
+            target_W = (W // 16) * self.patch_size
+            x = torch.nn.functional.interpolate(
+                x, size=(target_H, target_W), mode="bicubic", align_corners=False, antialias=True
+            )
+
         features = self._model.forward_features(x)
         # DINOv2 returns dict with 'x_norm_patchtokens'
         if isinstance(features, dict):

@@ -5,8 +5,8 @@ import torch
 import torch.nn.init
 from torch import Tensor, nn
 
+from ..encoder.vision_transformer import dtype_dict, ffn_layer_dict, init_weights_vit, norm_layer_dict
 from ..layers import RopePositionEmbedding, SelfAttentionBlock
-from ..encoder.vision_transformer import ffn_layer_dict, norm_layer_dict, dtype_dict, init_weights_vit
 from ..layers._utils import named_apply
 
 logger = logging.getLogger("dinov3_pixel_decoder")

@@ -6,8 +6,6 @@ Supports:
 - CachedLatentFolder: MAETok style cached latents for DiT training.
 """
 
-import io
-import json
 import logging
 import os
 from typing import Optional, Tuple
@@ -15,10 +13,9 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset
 from torchvision import datasets
 
-from .transforms import build_train_transform, build_eval_transform
+from .transforms import build_eval_transform, build_train_transform
 
 logger = logging.getLogger(__name__)
 
