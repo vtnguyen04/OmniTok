@@ -3,18 +3,12 @@ defaults:
   - override /model/encoder: vit_large
   - override /model/decoder: pixel_decoder
 
-# Experiment: T_final - Full OmniTok Architecture
-# 4 Teachers + Prediction/Cosine Alignment + Token Masking + Gaussianity + GAN + LPIPS
+# Experiment: T7 - DINOv2 + SigLIP + SAM + Depth
 training:
   max_steps: 2
 
 loss:
   alignment_weight: 1.0
-  gaussianity_weight: 0.1
-
-model:
-  encoder:
-    token_drop_rate: 0.5  
 
 teacher:
   _target_: omnitok.teachers.multi_teacher.MultiTeacher
@@ -33,13 +27,10 @@ teacher:
       model_name: depth_anything_v2_small
 
 alignment:
-  # Using Prediction alignment for multi-teacher 
-  # OR using Cosine Alignment with an MLP projector.
-  # Based on Phase 7 plan, we can use Prediction or Cosine. 
-  _target_: omnitok.losses.alignment.prediction.PredictionAlignmentLoss
+  _target_: omnitok.losses.alignment.relational.RelationalKDLoss
   student_dim: 32
   teacher_dim: 1024
-  embed_dim: 512
+  projector_type: linear
 
 data:
   batch_size: 2

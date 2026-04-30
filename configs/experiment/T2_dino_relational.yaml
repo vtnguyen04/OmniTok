@@ -1,0 +1,62 @@
+# T0 — Reproduce VTP-L baseline
+# Validates codebase correctness. Expected: rFID≈0.36, 0-shot≈78.2%, LinProbe≈85.7%
+# Uses ViT-Large + self-distillation (CLIP+DINO) + reconstruction + GAN
+# NOTE: Full CLIP contrastive requires text pairs (not in scope for this ablation).
+#       We use DINOv2 frozen as proxy teacher. To truly reproduce VTP, use VTP codebase.
+# @package _global_
+defaults:
+  - _self_
+
+model:
+  encoder:
+    type: "vtp_vit_large"
+    patch_size: 14
+    embed_dim: 1024
+    depth: 24
+    num_heads: 16
+    vit_feature_bottleneck: 32
+  decoder:
+    type: "pixel_decoder"
+    embed_dim: 1024
+    depth: 12
+    num_heads: 16
+
+teacher:
+  enabled: true
+  names: ["dinov2"]
+  dinov2:
+    model_name: "dinov2_vitl14"
+
+alignment:
+  type: "relational_kd"
+  mode: "relu_margin"
+  weight: 1.0
+  distmat_margin: 0.2
+  distmat_weight: 1.0
+  cos_margin: 0.0
+  cos_weight: 1.0
+  projector: "linear"
+  projector_hidden_dim: 0
+  student_dim: 32
+
+loss:
+  reconstruction:
+    recon_type: "l1"
+    recon_weight: 1.0
+    perceptual_weight: 1.0
+  gan:
+    enabled: true
+    n_layers: 3
+    disc_start: 50000
+    disc_weight: 0.5
+    lecam_weight: 0.01
+
+training:
+  max_steps: 200000
+  data:
+    batch_size: 256
+  exp_name: "T0_vtp_baseline"
+
+
+exp_name: "T0_vtp_baseline"
+notes: "VTP-style baseline: ViT-L + DINOv2 frozen + RelKD + GAN. Sanity check."
