@@ -6,7 +6,6 @@ Provides patch-level features for semantic alignment.
 import logging
 from typing import Optional
 
-import torch
 import torch.nn as nn
 from torch import Tensor
 

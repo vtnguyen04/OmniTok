@@ -4,12 +4,12 @@
 # Expected: Better reconstruction of spatially complex scenes
 # @package _global_
 defaults:
-  - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: multi_dino_depth
-  - override /alignment: relational_kd
-  - override /loss: standard
-  - override /training: tokenizer_full
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: multi_dino_depth
+  - /alignment: relational_kd
+  - /loss: standard
+  - /training: tokenizer_full
   - _self_
 
 exp_name: "T7_dino_depth"

@@ -3,12 +3,12 @@
 # Same teacher as T2; only alignment paradigm changes
 # @package _global_
 defaults:
-  - override /model/encoder: vit_large
-  - override /model/decoder: pixel_decoder_large
-  - override /teacher: dinov2
-  - override /alignment: cosine
-  - override /loss: standard
-  - override /training: tokenizer_full
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: dinov2
+  - /alignment: cosine
+  - /loss: standard
+  - /training: tokenizer_full
   - _self_
 
 exp_name: "T3_frozen_dino_cosine"

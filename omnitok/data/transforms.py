@@ -5,10 +5,8 @@ Ported from continuous_tokenizer/utils/data.py.
 
 import math
 import random
-from typing import Optional, Tuple
 
 import numpy as np
-import torch
 from PIL import Image
 from torchvision import transforms
 

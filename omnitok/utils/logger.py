@@ -10,12 +10,10 @@ Features:
 
 import logging
 import os
-import sys
 from typing import Any, Dict, Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,

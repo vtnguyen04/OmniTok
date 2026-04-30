@@ -6,7 +6,7 @@ All teachers are frozen — no gradients flow through them.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -88,6 +88,7 @@ class BaseTeacher(ABC, nn.Module):
         """
         if self._model is None:
             self.setup()
+            self._model.to(x.device)
         return self._extract_features(x)
 
     def train(self, mode: bool = True) -> "BaseTeacher":

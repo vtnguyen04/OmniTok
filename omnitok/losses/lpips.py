@@ -9,16 +9,15 @@ Reference:
     https://github.com/CompVis/taming-transformers/blob/master/taming/util.py
 """
 
-import os
 import hashlib
-import requests
+import os
 from collections import namedtuple
 
+import requests
 import torch
 import torch.nn as nn
 from torchvision import models
 from tqdm import tqdm
-
 
 _LPIPS_MEAN = [-0.030, -0.088, -0.188]
 _LPIPS_STD = [0.458, 0.448, 0.450]
