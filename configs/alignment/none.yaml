@@ -1,0 +1,6 @@
+# No alignment — pure reconstruction (used with teacher: none)
+# @package alignment
+type: "none"
+weight: 0.0
+projector: "linear"
+projector_hidden_dim: 0

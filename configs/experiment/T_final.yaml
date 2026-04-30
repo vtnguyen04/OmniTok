@@ -1,0 +1,25 @@
+# T_final — Full OmniTok model (winner combination from T0-T10)
+# Compose: best alignment + best teacher combination + GAN + Gaussianity reg
+# This is the model submitted in the paper as the proposed method
+# Defaults assume T5/T9/T10 win; update after seeing ablation results.
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: multi_dino_siglip
+  - override /alignment: relational_kd
+  - override /loss: with_gan
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T_final_omnitok"
+notes: "Full OmniTok: best alignment + multi-teacher + GAN + gaussianity reg. Final paper model."
+
+# Best settings from ablation (update after T0-T10 results)
+alignment:
+  projector: "linear"    # T10: linear ≈ MLP3 expected
+
+loss:
+  gaussianity:
+    enabled: true
+    weight: 0.1

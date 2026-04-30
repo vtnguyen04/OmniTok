@@ -1,0 +1,18 @@
+# Multi-teacher: DINOv2-L + SigLIP-L with PHI-S balancing
+# T5 experiment — spatial (DINO) + semantic (SigLIP)
+# @package teacher
+enabled: true
+names: ["dinov2", "siglip"]
+phi_s_balancing: true    # RADIO-style adaptive loss weighting
+dinov2:
+  model_name: "dinov2_vitl14"
+  feature_dim: 1024
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 1
+siglip:
+  model_name: "ViT-SO400M-14-SigLIP-384"
+  feature_dim: 1152
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0

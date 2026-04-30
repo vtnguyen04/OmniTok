@@ -1,0 +1,16 @@
+# T5 — Multi-teacher: DINOv2-L + SigLIP-L with PHI-S balancing
+# DINOv2: spatial structure, fine-grained details
+# SigLIP: semantic understanding, language-aligned vision
+# PHI-S: adaptive balancing prevents one teacher dominating
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: multi_dino_siglip
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T5_multi_dino_siglip"
+notes: "Multi-teacher DINO+SigLIP with PHI-S. Best alignment from T2-T4 assumed RelKD."

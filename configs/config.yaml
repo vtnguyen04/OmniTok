@@ -1,0 +1,35 @@
+# OmniTok — Primary Hydra Config
+# Usage:
+#   python train.py                                   # default (ViT-B, DINOv2, cosine)
+#   python train.py +experiment=T2_frozen_dino_relkd  # run specific experiment
+#   python train.py model/encoder=vit_large           # override single group
+#   python train.py training.max_steps=1000           # override single field
+
+defaults:
+  - model/encoder: vit_base
+  - model/decoder: pixel_decoder_base
+  - teacher: dinov2
+  - alignment: cosine
+  - loss: standard
+  - training: tokenizer_full
+  - _self_
+
+# --- Experiment identity ---
+exp_name: "omnitok_default"
+stage: "tokenizer"  # tokenizer | dit | e2e
+
+# --- Data ---
+data:
+  root: "/path/to/imagenet"
+  image_size: 256
+  batch_size: 256
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+
+# --- Output ---
+output:
+  dir: "outputs/${exp_name}"
+  log_dir: "outputs/${exp_name}/logs"
+  checkpoint_dir: "outputs/${exp_name}/checkpoints"
+  results_dir: "outputs/${exp_name}/results"

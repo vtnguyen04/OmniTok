@@ -1,0 +1,12 @@
+# ViT-Small encoder — fast iteration / debugging
+# embed_dim=384, depth=12, heads=6 → ~22M params
+# @package encoder
+img_size: 256
+patch_size: 16
+embed_dim: 384
+depth: 12
+num_heads: 6
+ffn_layer: "mlp"
+norm_layer: "layernorm"
+drop_path_rate: 0.0
+vit_feature_bottleneck: 16   # post-bottleneck latent dim

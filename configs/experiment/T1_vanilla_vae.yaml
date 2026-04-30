@@ -1,0 +1,16 @@
+# T1 — Vanilla VAE baseline (no alignment, no teacher)
+# Pure reconstruction: L1 + LPIPS + KL. No semantic knowledge.
+# Expected: rFID reasonable, 0-shot=0, LinProbe=low
+# Establishes the floor for all ablation experiments.
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: none
+  - override /alignment: none
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T1_vanilla_vae"
+notes: "Pure VAE: ViT-L + reconstruction only. No alignment. Ablation floor."

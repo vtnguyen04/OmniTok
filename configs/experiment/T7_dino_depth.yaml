@@ -1,0 +1,16 @@
+# T7 — Novel teacher: DINOv2-L + Depth Anything v2
+# NOVELTY: No prior work uses depth estimation features as tokenizer teacher
+# Hypothesis: Depth priors help tokenizer encode 3D scene structure into latent
+# Expected: Better reconstruction of spatially complex scenes
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: multi_dino_depth
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T7_dino_depth"
+notes: "Novel: DINO+DepthAnything. First use of depth teacher in visual tokenizer. Compare vs T5."

@@ -1,0 +1,13 @@
+# Relational KD alignment — VA-VAE style
+# Ép distance matrix của student giống distance matrix của teacher
+# Topology-preserving: giữ cấu trúc tương đối, không ép giá trị tuyệt đối
+# UNE: lý thuyết xác nhận đây là cách đúng hơn direct cosine
+# @package alignment
+type: "relational_kd"
+weight: 1.0
+margin: 0.2              # cosine margin (VA-VAE best from Table 3)
+include_direct_cosine: true   # optionally add direct cosine component
+cos_margin: 0.0
+# Projector: Linear theo UNE hypothesis (default); compare vs MLP trong T10
+projector: "linear"
+projector_hidden_dim: 0

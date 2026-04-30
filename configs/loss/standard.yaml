@@ -1,0 +1,16 @@
+# Standard reconstruction losses — no GAN discriminator
+# @package loss
+reconstruction:
+  recon_type: "l1"         # l1 | l2
+  recon_weight: 1.0
+  perceptual_weight: 1.0   # LPIPS weight
+
+kl:
+  weight: 1.0e-6           # KL regularization (keep latent near N(0,I))
+
+gan:
+  enabled: false
+
+gaussianity:
+  enabled: false           # T9: set to true to add L_gauss = MSE(Cov(z), I)
+  weight: 0.1

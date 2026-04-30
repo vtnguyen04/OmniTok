@@ -1,0 +1,12 @@
+# ViT-Base encoder — default training scale
+# embed_dim=768, depth=12, heads=12 → ~86M params
+# @package encoder
+img_size: 256
+patch_size: 16
+embed_dim: 768
+depth: 12
+num_heads: 12
+ffn_layer: "mlp"
+norm_layer: "layernorm"
+drop_path_rate: 0.1
+vit_feature_bottleneck: 32   # post-bottleneck latent dim (= latent_dim for DiT)

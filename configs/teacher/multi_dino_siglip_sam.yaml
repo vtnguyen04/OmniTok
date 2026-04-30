@@ -1,0 +1,24 @@
+# Multi-teacher: DINOv2-L + SigLIP-L + SAM-L with PHI-S
+# T6 experiment — spatial + semantic + boundary awareness
+# SAM features: dim=256, dense 64x64 tokens (pooled to 16x16 for alignment)
+# @package teacher
+enabled: true
+names: ["dinov2", "siglip", "sam"]
+phi_s_balancing: true
+dinov2:
+  model_name: "dinov2_vitl14"
+  feature_dim: 1024
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 1
+siglip:
+  model_name: "ViT-SO400M-14-SigLIP-384"
+  feature_dim: 1152
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0
+sam:
+  model_name: "sam_vit_l"
+  feature_dim: 256
+  freeze: true
+  pool_to: 16    # pool 64x64 SAM features → 16x16 for alignment
