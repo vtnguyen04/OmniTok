@@ -1,9 +1,14 @@
 """Teacher models — frozen VFM wrappers for alignment."""
 
-from .base import BaseTeacher
-from .normalizer import FeatureNormalizer, ProjectedNormalizer
-from .multi_teacher import MultiTeacher
-
 # Import to trigger registration
-from . import dinov2  # noqa: F401
-from . import siglip  # noqa: F401
+from . import (
+    depth_anything,  # noqa: F401
+    dinov2,  # noqa: F401
+    sam,  # noqa: F401
+    siglip,  # noqa: F401
+)
+from .base import BaseTeacher
+from .multi_teacher import MultiTeacher
+from .normalizer import FeatureNormalizer, ProjectedNormalizer
+
+__all__ = ["BaseTeacher", "MultiTeacher", "dinov2", "siglip", "sam", "depth_anything"]
