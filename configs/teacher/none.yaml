@@ -1,0 +1,4 @@
+# No teacher — pure reconstruction (T1: Vanilla VAE baseline)
+# @package teacher
+enabled: false
+names: []

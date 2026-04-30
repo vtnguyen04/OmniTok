@@ -1,0 +1,21 @@
+# T10 — Best config + Linear Projector (UNE hypothesis test)
+# UNE: since all good latent spaces are linear projections of the same Gaussian,
+#      a linear map from student→teacher space is theoretically sufficient.
+# Replace MLP3 projector (6M params) with Linear (25K params)
+# If Linear ≈ MLP3 performance → confirms UNE + massive param reduction
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: multi_dino_siglip
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T10_linear_projector"
+notes: "T5 + Linear projector (25K vs 6M params). UNE hypothesis: linear map is sufficient."
+
+# Override alignment projector to linear
+alignment:
+  projector: "linear"

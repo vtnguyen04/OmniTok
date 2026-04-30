@@ -1,0 +1,15 @@
+# T3 — Frozen DINOv2-L + Direct Cosine (REPA-E style)
+# Key ablation: point-wise cosine alignment (stronger constraint, less flexible)
+# Same teacher as T2; only alignment paradigm changes
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T3_frozen_dino_cosine"
+notes: "Direct Cosine (REPA-E style): point-wise alignment. Compare vs T2 (RelKD) and T4 (Predict)."

@@ -8,6 +8,7 @@ from omnitok.losses.alignment.cosine import CosineAlignmentLoss
 from omnitok.losses.alignment.relational import RelationalKDLoss
 from omnitok.losses.alignment.prediction import PredictionAlignmentLoss
 from omnitok.losses.kl import KLLoss
+from omnitok.losses.gaussianity import GaussianityLoss
 
 
 class TestCosineAlignmentLoss:
@@ -137,3 +138,65 @@ class TestLossRegistry:
 
     def test_gan_registered(self):
         assert "gan" in LOSS_REGISTRY
+
+    def test_gaussianity_registered(self):
+        assert "gaussianity" in LOSS_REGISTRY
+
+
+class TestGaussianityLoss:
+    """Tests for Gaussianity regularization loss (L_gauss from UNE)."""
+
+    def test_output_dict(self):
+        loss_fn = GaussianityLoss(weight=1e-4)
+        z = torch.randn(8, 64)
+        result = loss_fn(z)
+        assert "total" in result
+        assert "cov_loss" in result
+        assert "mean_loss" in result
+
+    def test_identity_cov_low_loss(self):
+        """Whitened data should have low cov loss."""
+        loss_fn = GaussianityLoss(weight=1.0)
+        # Generate whitened data: mean=0, cov≈I
+        z = torch.randn(1000, 16)  # large N for good cov estimate
+        result = loss_fn(z)
+        assert result["cov_loss"].item() < 0.5
+
+    def test_correlated_data_high_loss(self):
+        """Correlated data should have higher loss than whitened data."""
+        loss_fn = GaussianityLoss(weight=1.0)
+        # Whitened baseline
+        z_white = torch.randn(200, 16)
+        result_white = loss_fn(z_white)
+        # Correlated
+        base = torch.randn(200, 1)
+        z_corr = base.expand(-1, 16) + torch.randn(200, 16) * 0.01
+        result_corr = loss_fn(z_corr)
+        assert result_corr["cov_loss"].item() > result_white["cov_loss"].item()
+
+    def test_4d_input(self):
+        """Should handle (B, C, h, w) spatial latents."""
+        loss_fn = GaussianityLoss()
+        z = torch.randn(4, 32, 4, 4)
+        result = loss_fn(z)
+        assert result["total"].ndim == 0
+
+    def test_3d_input(self):
+        """Should handle (B, L, D) token sequences."""
+        loss_fn = GaussianityLoss()
+        z = torch.randn(4, 16, 64)
+        result = loss_fn(z)
+        assert result["total"].ndim == 0
+
+    def test_gradient_flows(self):
+        loss_fn = GaussianityLoss(weight=1.0)
+        z = torch.randn(16, 32, requires_grad=True)
+        result = loss_fn(z)
+        result["total"].backward()
+        assert z.grad is not None
+
+    def test_no_mean_penalty(self):
+        loss_fn = GaussianityLoss(weight=1.0, mean_penalty=False)
+        z = torch.randn(16, 32)
+        result = loss_fn(z)
+        assert "mean_loss" not in result

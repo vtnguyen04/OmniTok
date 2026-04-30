@@ -1,0 +1,13 @@
+# ViT-Large encoder — paper-quality experiments
+# embed_dim=1024, depth=24, heads=16 → ~307M params
+# VTP uses this scale; SOTA on understanding + generation
+# @package encoder
+img_size: 256
+patch_size: 16
+embed_dim: 1024
+depth: 24
+num_heads: 16
+ffn_layer: "mlp"       # "swiglu" when layers support it
+norm_layer: "layernorm"
+drop_path_rate: 0.1
+vit_feature_bottleneck: 64   # post-bottleneck latent dim (VA-VAE uses 64)

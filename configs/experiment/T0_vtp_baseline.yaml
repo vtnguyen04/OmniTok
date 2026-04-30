@@ -1,0 +1,17 @@
+# T0 — Reproduce VTP-L baseline
+# Validates codebase correctness. Expected: rFID≈0.36, 0-shot≈78.2%, LinProbe≈85.7%
+# Uses ViT-Large + self-distillation (CLIP+DINO) + reconstruction + GAN
+# NOTE: Full CLIP contrastive requires text pairs (not in scope for this ablation).
+#       We use DINOv2 frozen as proxy teacher. To truly reproduce VTP, use VTP codebase.
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: relational_kd
+  - override /loss: with_gan
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T0_vtp_baseline"
+notes: "VTP-style baseline: ViT-L + DINOv2 frozen + RelKD + GAN. Sanity check."

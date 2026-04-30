@@ -1,0 +1,9 @@
+# Direct Cosine alignment — REPA-E style
+# Ép từng patch token z_i giống teacher_i (point-wise, strong constraint)
+# @package alignment
+type: "cosine"
+weight: 1.0
+# Projector to map student_dim → teacher_dim before cosine
+# P3 = REPA-E default (MLP 3-layer); ablate with P1 (linear) via T10
+projector: "mlp3"
+projector_hidden_dim: 0    # 0 = auto (max of in/out dims)

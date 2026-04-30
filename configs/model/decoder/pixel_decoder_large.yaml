@@ -1,0 +1,10 @@
+# Pixel decoder — matches ViT-Large encoder
+# @package decoder
+in_chans: 64          # must match encoder.vit_feature_bottleneck
+out_chans: 3
+upscale_factor: 16
+embed_dim: 1024
+depth: 12
+num_heads: 16
+ffn_layer: "mlp"
+norm_layer: "layernorm"

@@ -1,0 +1,11 @@
+# Prediction alignment — MAETok style
+# Auxiliary decoder predicts teacher features from post-bottleneck latent
+# "Force the latent to CONTAIN enough info to reconstruct teacher features"
+# @package alignment
+type: "prediction"
+weight: 1.0
+student_dim: 32          # post-bottleneck dim (must match encoder.vit_feature_bottleneck)
+teacher_dim: 1024        # DINOv2-L feature dim; overridden per-teacher at runtime
+hidden_dim: 512
+projector: "linear"
+projector_hidden_dim: 0

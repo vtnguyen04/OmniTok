@@ -1,0 +1,32 @@
+# Full tokenizer training — 8×A100, ImageNet-1K
+# 200K steps ≈ ~100 epochs on ImageNet, matches VTP/VA-VAE protocols
+# @package training
+max_steps: 200000
+seed: 42
+mixed_precision: "bf16"
+grad_accum_steps: 1
+grad_clip: 1.0
+ema_decay: 0.9999
+log_every: 100
+save_every: 10000
+use_wandb: true
+metrics_window: 100
+exp_name: "omnitok"
+verbose: false
+
+optimizer:
+  type: "adamw"
+  lr: 1.0e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+
+scheduler:
+  type: "cosine"
+  warmup_steps: 5000
+  min_lr: 1.0e-6
+
+data:
+  batch_size: 256           # per-GPU batch; total = 256 × 8 = 2048
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true

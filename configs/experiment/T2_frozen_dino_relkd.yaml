@@ -1,0 +1,15 @@
+# T2 — Frozen DINOv2-L + Relational KD (VA-VAE style)
+# Key ablation: distance matrix alignment preserves topology (UNE: theoretically correct)
+# Compare vs T3 (cosine) and T4 (prediction) with identical setup
+# @package _global_
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T2_frozen_dino_relkd"
+notes: "Relational KD (VA-VAE style): topology-preserving alignment. Compare vs T3/T4."

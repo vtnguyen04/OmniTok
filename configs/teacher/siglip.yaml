@@ -1,0 +1,11 @@
+# Single teacher: SigLIP-L (frozen)
+# Feature dim: 1152, NO CLS token (uses GAP), 16x16=256 patch tokens
+# @package teacher
+enabled: true
+names: ["siglip"]
+siglip:
+  model_name: "ViT-SO400M-14-SigLIP-384"
+  feature_dim: 1152
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0       # SigLIP has no CLS
