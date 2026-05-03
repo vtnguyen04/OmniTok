@@ -227,11 +227,10 @@ class TestMLPBottleneck:
 # =============================================================================
 
 class TestGetLastLayer:
-    """Test that tokenizer.get_last_shared_layer() delegates to decoder."""
+    """Test that tokenizer.get_last_shared_layer() returns the encoder's last layer."""
 
-    def test_cnn_decoder_returns_conv_out(self):
-        """With CNN decoder, should return decoder.conv_out.weight."""
-        # Minimal ViT encoder
+    def test_returns_encoder_norm_weight(self):
+        """Should return encoder.norm.weight for proper alignment gradient weighting."""
         from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
         from omnitok.models.tokenizer import Tokenizer
         enc = DinoVisionTransformerWithBottleneck(
@@ -244,20 +243,4 @@ class TestGetLastLayer:
         )
         tok = Tokenizer(encoder=enc, decoder=dec)
         last = tok.get_last_shared_layer()
-        assert last is dec.conv_out.weight
-
-    def test_pixel_decoder_returns_refine_weight(self):
-        """With ViT pixel decoder, should return final_refine last conv weight."""
-        from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
-        from omnitok.models.tokenizer import Tokenizer
-        enc = DinoVisionTransformerWithBottleneck(
-            patch_size=16, embed_dim=192, depth=2, num_heads=3,
-            vit_feature_bottleneck=32,
-        )
-        dec = DECODER_REGISTRY.build(
-            "pixel_decoder", in_chans=32, embed_dim=192, depth=2,
-            num_heads=3, upscale_factor=16,
-        )
-        tok = Tokenizer(encoder=enc, decoder=dec)
-        last = tok.get_last_shared_layer()
-        assert last is dec.final_refine[-1].weight
+        assert last is enc.norm.weight
