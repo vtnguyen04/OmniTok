@@ -1,11 +1,11 @@
 # @package _global_
 # @package _global_
-# T0 — Reproduce VTP-L baseline
+# T0 — Reproduce VTP-B baseline
 defaults:
-  - override /model/encoder: vit_large
+  - override /model/encoder: vit_base
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
-  - override /teacher: dinov2
+  - override /teacher: dinov2_base
   - override /alignment: relational_kd
   - override /loss: standard
   - override /training: tokenizer_full
@@ -13,13 +13,13 @@ defaults:
 
 model:
   bottleneck:
-    in_dim: 1024
+    in_dim: 768
     latent_dim: 32
   decoder:
     in_chans: 32
 
 alignment:
-  student_dim: 1024  # align pre-bottleneck features
+  student_dim: 768  # align pre-bottleneck features
   cos_weight: 1.0
 
 loss:
@@ -35,4 +35,4 @@ data:
   exp_name: "T0_vtp_baseline"
 
 exp_name: "T0_vtp_baseline"
-notes: "VTP-style baseline: ViT-L + DINOv2 frozen + RelKD + GAN. Modular version."
+notes: "VTP-style baseline: ViT-B + DINOv2-B frozen + RelKD + GAN. Modular version."
