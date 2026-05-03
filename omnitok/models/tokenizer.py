@@ -202,31 +202,17 @@ class Tokenizer(nn.Module):
             p.requires_grad = True
 
     def get_last_shared_layer(self) -> nn.Parameter | None:
-        """Return the weight of the decoder's last layer.
+        """Return the weight of the last shared layer.
 
-        VA-VAE/REPA-E convention: adaptive gradient balancing computes
-        gradients at the decoder's final conv layer, where reconstruction
-        and alignment gradients meet. This is critical for correct balancing.
-
-        Reference:
-            REPA-E: models/autoencoder.py Decoder.get_last_layer() → conv_out.weight
-            LightningDiT: same convention
+        Since alignment loss is computed on the encoder's output features,
+        and reconstruction loss is computed on the decoder's output,
+        the gradients meet at the encoder's final layer.
         """
-        # Preferred: decoder's get_last_layer (CNN decoder has this)
-        if hasattr(self.decoder, "get_last_layer"):
-            return self.decoder.get_last_layer()
+        if hasattr(self.encoder, "norm") and hasattr(self.encoder.norm, "weight"):
+            return self.encoder.norm.weight
 
-        # Fallback for ViT decoder: look for final conv/linear
-        for attr in ("conv_out", "to_pixel", "output_proj"):
-            layer = getattr(self.decoder, attr, None)
-            if layer is not None:
-                if hasattr(layer, "weight"):
-                    return layer.weight
-                if hasattr(layer, "get_last_layer"):
-                    return layer.get_last_layer()
-
-        # Last resort: any decoder parameter
-        params = [p for p in self.decoder.parameters() if p.requires_grad]
+        # Last resort: any encoder parameter
+        params = [p for p in self.encoder.parameters() if p.requires_grad]
         return params[-1] if params else None
 
 

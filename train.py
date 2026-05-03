@@ -530,6 +530,26 @@ def main(cfg: DictConfig) -> None:
         log.info(f"Resuming from {last_ckpt}", phase="checkpoint")
         trainer.resume(last_ckpt)
 
+    # Spawn background system monitor on rank 0
+    if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+        import subprocess
+        import atexit
+        log.info("Spawning background system monitor (auto-managed)...", phase="setup")
+        import sys
+        cmd = [sys.executable, "omnitok/utils/system_monitor.py"]
+        if wandb_logger and wandb_logger._run is not None:
+            cmd.extend(["--run_id", wandb_logger._run.id])
+            
+        monitor_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        def cleanup_monitor():
+            if monitor_process.poll() is None:
+                monitor_process.terminate()
+        atexit.register(cleanup_monitor)
+
     # Train
     log.info(f"Starting training: {cfg.training.max_steps} steps", phase="train")
     trainer.train()
