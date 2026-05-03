@@ -1,0 +1,31 @@
+# @package _global_
+# @package _global_
+# T2 — Frozen DINOv2-L + Relational KD (VA-VAE style)
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  student_dim: 1024
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2
+
+exp_name: "T2_frozen_dino_relkd"
+notes: "Relational KD (VA-VAE style): topology-preserving alignment with modular bottleneck."

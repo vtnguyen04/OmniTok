@@ -6,6 +6,8 @@ import torch
 import torch.nn.init
 from torch import Tensor, nn
 
+from omnitok.registry import ENCODER_REGISTRY
+
 from ..layers import (
     LayerScale,
     Mlp,
@@ -55,8 +57,19 @@ def init_weights_vit(module: nn.Module, name: str = ""):
         module.reset_parameters()
 
 
+@ENCODER_REGISTRY.register("vit_encoder")
 class DinoVisionTransformer(nn.Module):
     """DINOv3 Vision Transformer for visual representation learning."""
+
+    @property
+    def input_mean(self) -> Tuple[float, float, float]:
+        """Expected RGB mean for DINOv2 weights."""
+        return (0.485, 0.456, 0.406)
+
+    @property
+    def input_std(self) -> Tuple[float, float, float]:
+        """Expected RGB std for DINOv2 weights."""
+        return (0.229, 0.224, 0.225)
 
     def __init__(
         self,
@@ -72,6 +85,8 @@ class DinoVisionTransformer(nn.Module):
         pos_embed_rope_jitter_coords: Optional[float] = None,
         pos_embed_rope_rescale_coords: Optional[float] = None,
         pos_embed_rope_dtype: str = "bf16",
+        use_abs_pos_embed: bool = False,
+        use_rope: bool = True,
         embed_dim: int = 768,
         depth: int = 12,
         num_heads: int = 12,
@@ -115,27 +130,40 @@ class DinoVisionTransformer(nn.Module):
         self.n_storage_tokens = n_storage_tokens
         if self.n_storage_tokens > 0:
             self.storage_tokens = nn.Parameter(torch.empty(1, n_storage_tokens, embed_dim, device=device))
-        logger.info(f"using base={pos_embed_rope_base} for rope new")
-        logger.info(f"using min_period={pos_embed_rope_min_period} for rope new")
-        logger.info(f"using max_period={pos_embed_rope_max_period} for rope new")
-        logger.info(f"using normalize_coords={pos_embed_rope_normalize_coords} for rope new")
-        logger.info(f"using shift_coords={pos_embed_rope_shift_coords} for rope new")
-        logger.info(f"using rescale_coords={pos_embed_rope_rescale_coords} for rope new")
-        logger.info(f"using jitter_coords={pos_embed_rope_jitter_coords} for rope new")
-        logger.info(f"using dtype={pos_embed_rope_dtype} for rope new")
-        self.rope_embed = RopePositionEmbedding(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            base=pos_embed_rope_base,
-            min_period=pos_embed_rope_min_period,
-            max_period=pos_embed_rope_max_period,
-            normalize_coords=pos_embed_rope_normalize_coords,
-            shift_coords=pos_embed_rope_shift_coords,
-            jitter_coords=pos_embed_rope_jitter_coords,
-            rescale_coords=pos_embed_rope_rescale_coords,
-            dtype=dtype_dict[pos_embed_rope_dtype],
-            device=device,
-        )
+
+        self.use_abs_pos_embed = use_abs_pos_embed
+        if self.use_abs_pos_embed:
+            num_patches = self.patch_embed.num_patches
+            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1 + n_storage_tokens, embed_dim, device=device))
+        else:
+            self.pos_embed = None
+
+        self.use_rope = use_rope
+        if self.use_rope:
+            logger.info(f"using base={pos_embed_rope_base} for rope new")
+            logger.info(f"using min_period={pos_embed_rope_min_period} for rope new")
+            logger.info(f"using max_period={pos_embed_rope_max_period} for rope new")
+            logger.info(f"using normalize_coords={pos_embed_rope_normalize_coords} for rope new")
+            logger.info(f"using shift_coords={pos_embed_rope_shift_coords} for rope new")
+            logger.info(f"using rescale_coords={pos_embed_rope_rescale_coords} for rope new")
+            logger.info(f"using jitter_coords={pos_embed_rope_jitter_coords} for rope new")
+            logger.info(f"using dtype={pos_embed_rope_dtype} for rope new")
+            self.rope_embed = RopePositionEmbedding(
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                base=pos_embed_rope_base,
+                min_period=pos_embed_rope_min_period,
+                max_period=pos_embed_rope_max_period,
+                normalize_coords=pos_embed_rope_normalize_coords,
+                shift_coords=pos_embed_rope_shift_coords,
+                jitter_coords=pos_embed_rope_jitter_coords,
+                rescale_coords=pos_embed_rope_rescale_coords,
+                dtype=dtype_dict[pos_embed_rope_dtype],
+                device=device,
+            )
+        else:
+            self.rope_embed = None
+
         logger.info(f"using {ffn_layer} layer as FFN")
         ffn_layer_cls = ffn_layer_dict[ffn_layer]
         ffn_ratio_sequence = [ffn_ratio] * depth
@@ -179,7 +207,10 @@ class DinoVisionTransformer(nn.Module):
         self.mask_token = nn.Parameter(torch.empty(1, embed_dim, device=device))
 
     def init_weights(self):
-        self.rope_embed._init_weights()
+        if self.use_rope and self.rope_embed is not None:
+            self.rope_embed._init_weights()
+        if self.use_abs_pos_embed and self.pos_embed is not None:
+            nn.init.trunc_normal_(self.pos_embed, std=0.02)
         nn.init.normal_(self.cls_token, std=0.02)
         if self.n_storage_tokens > 0:
             nn.init.normal_(self.storage_tokens, std=0.02)
@@ -216,6 +247,9 @@ class DinoVisionTransformer(nn.Module):
             dim=1,
         )
 
+        if self.use_abs_pos_embed and self.pos_embed is not None:
+            x = x + self.pos_embed
+
         return x, (H, W)
 
     def forward_features_list(
@@ -248,30 +282,30 @@ class DinoVisionTransformer(nn.Module):
 
                 # Generate binary mask
                 patch_mask = torch.zeros(B, num_patches, device=t2_x.device)
-                for b in range(B):
-                    patch_mask[b, ids_shuffle[b, :len_keep]] = 1.0
+                patch_mask.scatter_(1, ids_shuffle[:, :len_keep], 1)
 
-                # Replace masked tokens with mask_token
-                # Expand mask to spatial dimensions
-                mask_expanded = patch_mask.unsqueeze(-1).expand(-1, -1, D)
-                patches = t2_x[:, num_specials:]
+                # Expand mask to include special tokens (always kept)
+                special_mask = torch.ones(B, num_specials, device=t2_x.device)
+                full_mask = torch.cat([special_mask, patch_mask], dim=1)
 
-                # where(condition, input, other): if condition is True, yield input, else other
-                patches = torch.where(mask_expanded.bool(), patches, self.mask_token.to(t2_x.dtype))
-                t2_x = torch.cat([t2_x[:, :num_specials], patches], dim=1)
+                # Apply mask (replace masked tokens with mask_token)
+                mask_token_expanded = self.mask_token.expand(B, N, -1)
+                t2_x = torch.where(full_mask.unsqueeze(-1) == 1, t2_x, mask_token_expanded)
 
-                generated_mask = patch_mask
+                generated_mask = full_mask
 
             all_x.append(t2_x)
             all_generated_masks.append(generated_mask)
-            rope.append(hw_tuple)
+
+            if self.use_rope and self.rope_embed is not None:
+                rope_sin_cos = self.rope_embed(H=hw_tuple[0], W=hw_tuple[1])
+                rope.append(rope_sin_cos)
+            else:
+                rope.append(None)
 
         x = all_x
         for _, blk in enumerate(self.blocks):
-            if self.rope_embed is not None:
-                rope_sincos = [self.rope_embed(H=H, W=W) for H, W in rope]
-            else:
-                rope_sincos = [None for r in rope]
+            rope_sincos = rope
             x = blk(x, rope_sincos, drop_ratio=drop_ratio)
         all_x = x
         output = []
@@ -309,9 +343,13 @@ class DinoVisionTransformer(nn.Module):
         mask_ratio: float = 0.5,
     ) -> List[Dict[str, Tensor]]:
         if isinstance(x, torch.Tensor):
-            return self.forward_features_list([x], [masks], drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio)[0]
+            return self.forward_features_list(
+                [x], [masks], drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio
+            )[0]
         else:
-            return self.forward_features_list(x, masks, drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio)
+            return self.forward_features_list(
+                x, masks, drop_ratio=drop_ratio, return_mask=return_mask, mask_ratio=mask_ratio
+            )
 
     def _get_intermediate_layers_not_chunked(self, x: Tensor, n: int = 1) -> List[Tensor]:
         x, (H, W) = self.prepare_tokens_with_masks(x)
@@ -367,7 +405,9 @@ class DinoVisionTransformer(nn.Module):
         elif return_class_token and return_extra_tokens:
             return tuple(zip(outputs, class_tokens, extra_tokens))
 
-    def forward(self, *args, is_training: bool = False, drop_ratio: Optional[float] = None, **kwargs) -> Union[List[Dict[str, Tensor]], Tensor]:
+    def forward(
+        self, *args, is_training: bool = False, drop_ratio: Optional[float] = None, **kwargs
+    ) -> Union[List[Dict[str, Tensor]], Tensor]:
         ret = self.forward_features(*args, drop_ratio=drop_ratio, **kwargs)
         if is_training:
             return ret

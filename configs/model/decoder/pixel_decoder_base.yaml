@@ -1,6 +1,7 @@
 # Pixel decoder — matches ViT-Base encoder
-# @package decoder
-in_chans: 32          # must match encoder.vit_feature_bottleneck
+# @package model.decoder
+type: "pixel_decoder"
+in_chans: 256          # must match encoder.vit_feature_bottleneck
 out_chans: 3
 upscale_factor: 16    # must match encoder.patch_size
 embed_dim: 768

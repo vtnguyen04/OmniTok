@@ -1,3 +1,4 @@
+import logging
 from collections import OrderedDict
 from typing import Callable, List, Optional, Tuple
 
@@ -9,6 +10,8 @@ from .attention import Attention, CausalSelfAttention, SelfAttention
 from .ffn import Mlp
 from .misc import LayerScale
 from .normalization import LayerNorm
+
+logger = logging.getLogger(__name__)
 
 torch._dynamo.config.automatic_dynamic_shapes = False
 torch._dynamo.config.accumulated_cache_size_limit = 1024
@@ -27,6 +30,7 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
 
     try:
         import torch.distributed as dist
+
         ddp_inited = dist.is_available() and dist.is_initialized()
     except Exception:
         ddp_inited = False
@@ -46,16 +50,16 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
 
     if cache_key not in _GLOBAL_SAMPLING_CACHE:
         if rank == 0:
-            print("[Sampling Cache] New configuration detected:")
-            print(f"  - Global batch size: {global_batch}")
-            print(f"  - Sample drop ratio: {sample_drop_ratio:.3f}")
-            print(f"  - World size: {world_size}")
-            print(f"  - Per-GPU batch size: {b}")
+            logger.debug("[Sampling Cache] New configuration detected:")
+            logger.debug(f"  - Global batch size: {global_batch}")
+            logger.debug(f"  - Sample drop ratio: {sample_drop_ratio:.3f}")
+            logger.debug(f"  - World size: {world_size}")
+            logger.debug(f"  - Per-GPU batch size: {b}")
 
             global_exact_keep = global_batch * (1 - sample_drop_ratio)
             global_keep = max(int(global_exact_keep), world_size)
 
-            print(f"  - Global keep samples: {global_keep} (exact: {global_exact_keep:.2f})")
+            logger.debug(f"  - Global keep samples: {global_keep} (exact: {global_exact_keep:.2f})")
 
             base = global_keep // world_size
             extra = global_keep % world_size
@@ -69,26 +73,31 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
             residual_scale_factor = global_batch / max(actual_global_keep, 1)
 
             allocation_info = {
-                'allocation': allocation,
-                'global_keep_samples': global_keep,
-                'actual_global_samples': actual_global_keep,
-                'residual_scale_factor': residual_scale_factor,
+                "allocation": allocation,
+                "global_keep_samples": global_keep,
+                "actual_global_samples": actual_global_keep,
+                "residual_scale_factor": residual_scale_factor,
             }
 
-            print(f"  - Allocation per GPU: {allocation}")
-            print(f"  - Actual global samples: {actual_global_keep}")
-            print(f"  - Residual scale factor: {residual_scale_factor:.4f}")
-            print("  - Saving to cache...")
+            logger.debug(f"  - Allocation per GPU: {allocation}")
+            logger.debug(f"  - Actual global samples: {actual_global_keep}")
+            logger.debug(f"  - Residual scale factor: {residual_scale_factor:.4f}")
+            logger.debug("  - Saving to cache...")
 
             _GLOBAL_SAMPLING_CACHE[cache_key] = allocation_info
 
-            payload = torch.tensor([
-                allocation_info['global_keep_samples'],
-                allocation_info['actual_global_samples'],
-                allocation_info['residual_scale_factor']
-            ] + allocation_info['allocation'], dtype=torch.float32, device=x.device)
+            payload = torch.tensor(
+                [
+                    allocation_info["global_keep_samples"],
+                    allocation_info["actual_global_samples"],
+                    allocation_info["residual_scale_factor"],
+                ]
+                + allocation_info["allocation"],
+                dtype=torch.float32,
+                device=x.device,
+            )
 
-            print("  - Broadcasting allocation to all nodes...")
+            logger.debug("  - Broadcasting allocation to all nodes...")
         else:
             payload = torch.zeros(3 + world_size, dtype=torch.float32, device=x.device)
         dist.broadcast(payload, src=0)
@@ -99,18 +108,18 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
             allocation = [int(payload[3 + i].item()) for i in range(world_size)]
 
             allocation_info = {
-                'allocation': allocation,
-                'global_keep_samples': global_keep,
-                'actual_global_samples': actual_global_keep,
-                'residual_scale_factor': residual_scale_factor,
+                "allocation": allocation,
+                "global_keep_samples": global_keep,
+                "actual_global_samples": actual_global_keep,
+                "residual_scale_factor": residual_scale_factor,
             }
 
             _GLOBAL_SAMPLING_CACHE[cache_key] = allocation_info
-            print(f"[Sampling Cache] Rank {rank} received allocation: {allocation}")
+            logger.debug(f"[Sampling Cache] Rank {rank} received allocation: {allocation}")
 
     info = _GLOBAL_SAMPLING_CACHE[cache_key]
-    local_keep = int(info['allocation'][rank])
-    residual_scale_factor = float(info['residual_scale_factor'])
+    local_keep = int(info["allocation"][rank])
+    residual_scale_factor = float(info["residual_scale_factor"])
     if local_keep > 0:
         brange = torch.randperm(b, device=x.device)[:local_keep]
     else:
@@ -121,17 +130,19 @@ def get_branges_scales(x: Tensor, sample_drop_ratio: float = 0.0):
 def clear_sampling_cache():
     global _GLOBAL_SAMPLING_CACHE
     _GLOBAL_SAMPLING_CACHE.clear()
-    print("[Sampling Cache] Cache cleared")
+    logger.debug("[Sampling Cache] Cache cleared")
 
 
 def print_sampling_cache_info():
     global _GLOBAL_SAMPLING_CACHE
-    print(f"[Sampling Cache] Current cache size: {len(_GLOBAL_SAMPLING_CACHE)}")
+    logger.debug(f"[Sampling Cache] Current cache size: {len(_GLOBAL_SAMPLING_CACHE)}")
     for i, (key, info) in enumerate(_GLOBAL_SAMPLING_CACHE.items()):
         global_batch, drop_ratio, world_size = key
-        print(f"  Cache [{i+1}]: global_batch={global_batch}, drop_ratio={drop_ratio:.3f}, world_size={world_size}")
-        print(f"    Allocation: {info['allocation']}")
-        print(f"    Scale factor: {info['residual_scale_factor']:.4f}")
+        logger.debug(
+            f"  Cache [{i + 1}]: global_batch={global_batch}, drop_ratio={drop_ratio:.3f}, world_size={world_size}"
+        )
+        logger.debug(f"    Allocation: {info['allocation']}")
+        logger.debug(f"    Scale factor: {info['residual_scale_factor']:.4f}")
 
 
 class SelfAttentionBlock(nn.Module):
@@ -211,7 +222,7 @@ class SelfAttentionBlock(nn.Module):
             x_attn = torch.index_add(
                 x,
                 dim=0,
-                source=self.ls1(residual_1),
+                source=self.ls1(residual_1).to(x.dtype),
                 index=indices_1,
                 alpha=residual_scale_factor,
             )
@@ -222,7 +233,7 @@ class SelfAttentionBlock(nn.Module):
             x_ffn = torch.index_add(
                 x_attn,
                 dim=0,
-                source=self.ls2(residual_2),
+                source=self.ls2(residual_2).to(x_attn.dtype),
                 index=indices_2,
                 alpha=residual_scale_factor,
             )
@@ -233,7 +244,6 @@ class SelfAttentionBlock(nn.Module):
         return x_ffn
 
     def _forward_list(self, x_list: List[Tensor], rope_list=None, drop_ratio: Optional[float] = None) -> List[Tensor]:
-        b_list = [x.shape[0] for x in x_list]
         effective_drop_ratio = drop_ratio if drop_ratio is not None else self.sample_drop_ratio
         if self.training and effective_drop_ratio > 0.0:
             branges_scales_1 = [get_branges_scales(x, effective_drop_ratio) for x in x_list]
@@ -256,7 +266,7 @@ class SelfAttentionBlock(nn.Module):
                 torch.index_add(
                     x,
                     dim=0,
-                    source=self.ls1(residual_1),
+                    source=self.ls1(residual_1).to(x.dtype),
                     index=indices_1,
                     alpha=residual_scale_factor,
                 )
@@ -279,7 +289,7 @@ class SelfAttentionBlock(nn.Module):
                 torch.index_add(
                     x_attn,
                     dim=0,
-                    source=self.ls2(residual_2),
+                    source=self.ls2(residual_2).to(x_attn.dtype),
                     index=indices_2,
                     alpha=residual_scale_factor,
                 )
@@ -371,15 +381,15 @@ class ResidualAttentionBlock(nn.Module):
     """Residual attention block for CLIP-style transformers."""
 
     def __init__(
-            self,
-            d_model: int,
-            n_head: int,
-            mlp_ratio: float = 4.0,
-            ls_init_value: float = None,
-            act_layer: Callable = nn.GELU,
-            norm_layer: Callable = LayerNorm,
-            is_cross_attention: bool = False,
-            batch_first: bool = True,
+        self,
+        d_model: int,
+        n_head: int,
+        mlp_ratio: float = 4.0,
+        ls_init_value: float = None,
+        act_layer: Callable = nn.GELU,
+        norm_layer: Callable = LayerNorm,
+        is_cross_attention: bool = False,
+        batch_first: bool = True,
     ):
         super().__init__()
 
@@ -391,34 +401,36 @@ class ResidualAttentionBlock(nn.Module):
 
         self.ln_2 = norm_layer(d_model)
         mlp_width = int(d_model * mlp_ratio)
-        self.mlp = nn.Sequential(OrderedDict([
-            ("c_fc", nn.Linear(d_model, mlp_width)),
-            ("gelu", act_layer()),
-            ("c_proj", nn.Linear(mlp_width, d_model))
-        ]))
+        self.mlp = nn.Sequential(
+            OrderedDict(
+                [
+                    ("c_fc", nn.Linear(d_model, mlp_width)),
+                    ("gelu", act_layer()),
+                    ("c_proj", nn.Linear(mlp_width, d_model)),
+                ]
+            )
+        )
         self.ls_2 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
 
     def attention(
-            self,
-            q_x: torch.Tensor,
-            k_x: Optional[torch.Tensor] = None,
-            v_x: Optional[torch.Tensor] = None,
-            attn_mask: Optional[torch.Tensor] = None,
+        self,
+        q_x: torch.Tensor,
+        k_x: Optional[torch.Tensor] = None,
+        v_x: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
     ):
         k_x = k_x if k_x is not None else q_x
         v_x = v_x if v_x is not None else q_x
 
         attn_mask = attn_mask.to(q_x.dtype) if attn_mask is not None else None
-        return self.attn(
-            q_x, k_x, v_x, need_weights=False, attn_mask=attn_mask
-        )[0]
+        return self.attn(q_x, k_x, v_x, need_weights=False, attn_mask=attn_mask)[0]
 
     def forward(
-            self,
-            q_x: torch.Tensor,
-            k_x: Optional[torch.Tensor] = None,
-            v_x: Optional[torch.Tensor] = None,
-            attn_mask: Optional[torch.Tensor] = None,
+        self,
+        q_x: torch.Tensor,
+        k_x: Optional[torch.Tensor] = None,
+        v_x: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
     ):
         k_x = self.ln_1_kv(k_x) if hasattr(self, "ln_1_kv") and k_x is not None else None
         v_x = self.ln_1_kv(v_x) if hasattr(self, "ln_1_kv") and v_x is not None else None
@@ -431,18 +443,18 @@ class CustomResidualAttentionBlock(nn.Module):
     """Custom residual attention block with scaled cosine attention."""
 
     def __init__(
-            self,
-            d_model: int,
-            n_head: int,
-            mlp_ratio: float = 4.0,
-            ls_init_value: float = None,
-            act_layer: Callable = nn.GELU,
-            norm_layer: Callable = LayerNorm,
-            scale_cosine_attn: bool = False,
-            scale_heads: bool = False,
-            scale_attn: bool = False,
-            scale_fc: bool = False,
-            batch_first: bool = True,
+        self,
+        d_model: int,
+        n_head: int,
+        mlp_ratio: float = 4.0,
+        ls_init_value: float = None,
+        act_layer: Callable = nn.GELU,
+        norm_layer: Callable = LayerNorm,
+        scale_cosine_attn: bool = False,
+        scale_heads: bool = False,
+        scale_attn: bool = False,
+        scale_fc: bool = False,
+        batch_first: bool = True,
     ):
         super().__init__()
 
@@ -459,12 +471,16 @@ class CustomResidualAttentionBlock(nn.Module):
 
         self.ln_2 = norm_layer(d_model)
         mlp_width = int(d_model * mlp_ratio)
-        self.mlp = nn.Sequential(OrderedDict([
-            ("c_fc", nn.Linear(d_model, mlp_width)),
-            ("gelu", act_layer()),
-            ('ln', norm_layer(mlp_width) if scale_fc else nn.Identity()),
-            ("c_proj", nn.Linear(mlp_width, d_model))
-        ]))
+        self.mlp = nn.Sequential(
+            OrderedDict(
+                [
+                    ("c_fc", nn.Linear(d_model, mlp_width)),
+                    ("gelu", act_layer()),
+                    ("ln", norm_layer(mlp_width) if scale_fc else nn.Identity()),
+                    ("c_proj", nn.Linear(mlp_width, d_model)),
+                ]
+            )
+        )
         self.ls_2 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
 
     def get_reference_weight(self):

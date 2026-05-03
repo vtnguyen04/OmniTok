@@ -1,23 +1,33 @@
 #!/usr/bin/env python
 """OmniTok — Evaluation entry point.
 
-Runs all evaluation metrics on a trained tokenizer checkpoint:
-- rFID: Reconstruction FID
-- PSNR: Pixel-level fidelity
-- Linear Probe: Semantic quality
-- Gaussianity Score: UNE hypothesis validation
+Loads a trained tokenizer from an experiment output directory (which contains
+config.yaml + checkpoints/), runs all evaluation metrics, saves results and
+publication-quality figures.
 
-Results are saved to JSON/CSV and optionally plotted.
+Metrics:
+    - PSNR          : Pixel-level fidelity (always on, cheap)
+    - Gaussianity   : UNE hypothesis — fraction of Gaussian latent dims
+    - rFID          : Reconstruction FID via cleanfid (optional, slow)
+    - LinearProbe   : Semantic quality of encoder features (optional)
+
+Outputs (all inside --output-dir):
+    eval_results.json / eval_results.csv   — metric numbers
+    figures/recon_grid.png                 — orig vs. recon comparison grid
+    figures/loss_curves.pdf                — training loss curves (if metrics.json present)
 
 Usage:
-    # Full evaluation
-    python evaluate.py --checkpoint outputs/tokenizer/checkpoints/ckpt_100000.pt
+    # Full eval from a training run
+    python evaluate.py --exp-dir outputs/smoke_test
 
-    # Quick eval (PSNR + Gaussianity only)
-    python evaluate.py --checkpoint ckpt.pt --skip-rfid --skip-linear-probe
+    # Quick eval — PSNR + Gaussianity only
+    python evaluate.py --exp-dir outputs/smoke_test --skip-rfid --skip-linear-probe
 
-    # Generate plots from existing results
-    python evaluate.py --results-dir outputs/tokenizer --plots-only
+    # Override data dir and batch size
+    python evaluate.py --exp-dir outputs/smoke_test --data-dir /path/to/imagenet/val --batch-size 64
+
+    # Just regenerate plots
+    python evaluate.py --exp-dir outputs/smoke_test --plots-only
 """
 
 import argparse
@@ -27,95 +37,259 @@ import sys
 from typing import Dict, Optional
 
 import torch
+from omegaconf import OmegaConf
 
 from omnitok.utils.logger import OmniTokLogger
 from omnitok.utils.plots import PlotGenerator
 from omnitok.utils.artifacts import ArtifactManager
-from omnitok.utils.experiment import ExperimentManager
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse evaluation CLI arguments."""
     parser = argparse.ArgumentParser(description="OmniTok Tokenizer Evaluation")
-    parser.add_argument("--checkpoint", type=str, required=False, help="Path to tokenizer checkpoint (.pt)")
-    parser.add_argument("--data-dir", type=str, default="/path/to/imagenet/val", help="Validation data directory")
-    parser.add_argument("--output-dir", type=str, default="outputs/eval", help="Output directory for results")
-    parser.add_argument("--batch-size", type=int, default=32, help="Evaluation batch size")
-    parser.add_argument("--num-workers", type=int, default=8, help="DataLoader workers")
-    parser.add_argument("--max-images", type=int, default=50000, help="Max images for rFID")
-    parser.add_argument("--skip-rfid", action="store_true", help="Skip rFID (slow)")
+    parser.add_argument(
+        "--exp-dir", type=str, required=True,
+        help="Experiment output dir (contains config.yaml + checkpoints/)"
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None,
+        help="Path to specific checkpoint .pt (default: latest in exp-dir/checkpoints/)"
+    )
+    parser.add_argument(
+        "--data-dir", type=str, default=None,
+        help="Validation data directory (default: uses data.root from training config)"
+    )
+    parser.add_argument("--output-dir", type=str, default=None, help="Results output dir (default: exp-dir/eval)")
+    parser.add_argument("--batch-size", type=int, default=16, help="Evaluation batch size")
+    parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers")
+    parser.add_argument("--n-batches", type=int, default=None, help="Limit batches (None = full dataset)")
+    parser.add_argument("--max-images", type=int, default=5000, help="Max images for rFID")
+    parser.add_argument("--skip-rfid", action="store_true", help="Skip rFID (requires cleanfid, slow)")
     parser.add_argument("--skip-linear-probe", action="store_true", help="Skip linear probe")
     parser.add_argument("--skip-gaussianity", action="store_true", help="Skip Gaussianity Score")
-    parser.add_argument("--plots-only", action="store_true", help="Only generate plots from existing results")
-    parser.add_argument("--results-dir", type=str, default=None, help="Load results from this dir (for --plots-only)")
+    parser.add_argument("--n-recon-images", type=int, default=8, help="Images to show in recon grid")
+    parser.add_argument("--plots-only", action="store_true", help="Only regenerate plots from saved results")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
     return parser.parse_args()
 
 
-def load_tokenizer(ckpt_path: str, device: torch.device, log: OmniTokLogger):
-    """Load tokenizer from checkpoint.
+def _find_latest_checkpoint(ckpt_dir: str) -> Optional[str]:
+    """Return the latest checkpoint in ckpt_dir, or None if empty."""
+    if not os.path.isdir(ckpt_dir):
+        return None
+    ckpts = sorted(
+        [f for f in os.listdir(ckpt_dir) if f.endswith(".pt")],
+        key=lambda x: int(x.split("-")[-1].split(".")[0]) if "-" in x else 0,
+    )
+    return os.path.join(ckpt_dir, ckpts[-1]) if ckpts else None
+
+
+def load_tokenizer(exp_dir: str, ckpt_path: str, device: torch.device, log: OmniTokLogger):
+    """Reconstruct tokenizer from saved config.yaml, then load checkpoint weights.
+
+    train.py always saves config.yaml to exp_dir. We read it with OmegaConf
+    and use the same _build_tokenizer logic to reconstruct the exact architecture.
 
     Args:
+        exp_dir: Experiment output dir (must contain config.yaml).
         ckpt_path: Path to checkpoint .pt file.
         device: Target device.
         log: OmniTokLogger.
 
     Returns:
-        Loaded tokenizer model in eval mode.
+        Tokenizer model in eval mode on device.
     """
-    from omnitok.training.utils import load_checkpoint
+    config_path = os.path.join(exp_dir, "config.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"config.yaml not found in {exp_dir}. "
+            "Run train.py first (it saves config.yaml automatically)."
+        )
+
+    cfg = OmegaConf.load(config_path)
+    log.info(f"Loaded config from {config_path}")
+
+    from omnitok.models.tokenizer import Tokenizer
+    from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
+    from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
+
+    encoder = DinoVisionTransformerWithBottleneck(
+        img_size=cfg.model.encoder.img_size,
+        patch_size=cfg.model.encoder.patch_size,
+        embed_dim=cfg.model.encoder.embed_dim,
+        depth=cfg.model.encoder.depth,
+        num_heads=cfg.model.encoder.num_heads,
+        vit_feature_bottleneck=cfg.model.encoder.get("vit_feature_bottleneck", 32),
+    )
+    decoder = DinoV3PixelDecoder(
+        in_chans=cfg.model.encoder.get("vit_feature_bottleneck", 32),
+        out_chans=cfg.model.decoder.get("out_chans", 3),
+        upscale_factor=cfg.model.decoder.get("upscale_factor", 16),
+        embed_dim=cfg.model.decoder.embed_dim,
+        depth=cfg.model.decoder.depth,
+        num_heads=cfg.model.decoder.num_heads,
+    )
+    tokenizer = Tokenizer(encoder=encoder, decoder=decoder)
 
     state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-
-    # Reconstruct tokenizer from checkpoint config
-    from omnitok.models.tokenizer import Tokenizer
-    cfg = state.get("config", {})
-
-    tokenizer = Tokenizer(
-        img_size=cfg.get("img_size", 256),
-        patch_size=cfg.get("patch_size", 16),
-        embed_dim=cfg.get("embed_dim", 768),
-        encoder_depth=cfg.get("encoder_depth", 12),
-        encoder_num_heads=cfg.get("encoder_num_heads", 12),
-        decoder_embed_dim=cfg.get("decoder_embed_dim", 768),
-        decoder_depth=cfg.get("decoder_depth", 12),
-        decoder_num_heads=cfg.get("decoder_num_heads", 12),
-        bottleneck_dim=cfg.get("bottleneck_dim", 32),
-    )
-
-    # Load EMA weights if available, else model weights
+    # Prefer EMA weights for evaluation (more stable)
     if "ema_model" in state:
         tokenizer.load_state_dict(state["ema_model"])
-        log.info("Loaded EMA model weights")
+        log.info(f"Loaded EMA weights from step {state.get('step', '?')}")
     elif "model" in state:
         tokenizer.load_state_dict(state["model"])
-        log.info("Loaded model weights")
+        log.info(f"Loaded model weights from step {state.get('step', '?')}")
     else:
         raise RuntimeError(f"No model weights found in {ckpt_path}")
 
     tokenizer.eval().to(device)
-    log.success(f"Loaded tokenizer from {ckpt_path}")
-    return tokenizer
+    log.success(f"Tokenizer loaded → {device}")
+    return tokenizer, cfg
 
 
-def run_evaluation(
+def save_recon_images(
     tokenizer: torch.nn.Module,
-    args: argparse.Namespace,
+    val_loader: torch.utils.data.DataLoader,
+    artifact_mgr: ArtifactManager,
+    device: torch.device,
+    n_images: int,
     log: OmniTokLogger,
-) -> Dict[str, float]:
-    """Run all evaluation metrics.
+) -> None:
+    """Run encode→decode and save a reconstruction comparison grid.
 
-    Args:
-        tokenizer: Loaded tokenizer model.
-        args: CLI arguments.
-        log: OmniTokLogger.
-
-    Returns:
-        Dict of all metric results.
+    Pulls the first batch, encodes + decodes, saves side-by-side grid:
+    [orig0 | recon0 | orig1 | recon1 | ...]
     """
-    from omnitok.evaluation.evaluator import TokenizerEvaluator
+    tokenizer.eval()
+    with torch.no_grad():
+        batch = next(iter(val_loader))
+        images = batch[0][:n_images].to(device)
+        z = tokenizer.encode(images)
+        recon = tokenizer.decode(z)
 
-    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    # Denormalize from [-1, 1] → [0, 1] for visualization
+    imgs_vis = (images.cpu() * 0.5 + 0.5).clamp(0, 1)
+    recon_vis = (recon.cpu() * 0.5 + 0.5).clamp(0, 1)
+
+    path = artifact_mgr.save_recon_grid(imgs_vis, recon_vis, step=0, nrow=min(4, n_images))
+    log.success(f"Recon grid saved → {path}")
+
+
+def generate_plots(exp_dir: str, output_dir: str, log: OmniTokLogger) -> None:
+    """Generate figures from saved metrics.json and eval_results.json."""
+    plots = PlotGenerator(output_dir=os.path.join(output_dir, "figures"))
+
+    # Loss curves from training metrics
+    metrics_path = os.path.join(exp_dir, "metrics.json")
+    if os.path.exists(metrics_path):
+        with open(metrics_path) as f:
+            metrics_data = json.load(f)
+        if "history" in metrics_data and metrics_data["history"]:
+            path = plots.plot_loss_curves(metrics_data["history"], title="Training Loss", fmt="pdf")
+            log.info(f"Loss curves → {path}")
+        else:
+            log.warning("metrics.json has no history — skipping loss curve plot")
+    else:
+        log.warning(f"No metrics.json in {exp_dir} — skipping loss curves")
+
+    # Ablation bar chart from eval results
+    eval_path = os.path.join(output_dir, "eval_results.json")
+    if os.path.exists(eval_path):
+        with open(eval_path) as f:
+            eval_results = json.load(f)
+        # Only plot scalar metrics
+        scalar_results = {k: v for k, v in eval_results.items() if isinstance(v, (int, float))}
+        if scalar_results and "psnr" in scalar_results:
+            path = plots.plot_ablation_bar(
+                {"current": scalar_results},
+                metric="psnr",
+                title="PSNR",
+                filename="eval_psnr_bar.png",
+            )
+            log.info(f"Metrics bar chart → {path}")
+
+    log.success(f"All figures → {os.path.join(output_dir, 'figures')}")
+
+
+def save_results(results: Dict[str, float], output_dir: str, log: OmniTokLogger) -> None:
+    """Save results to JSON and CSV."""
+    import csv
+    os.makedirs(output_dir, exist_ok=True)
+
+    json_path = os.path.join(output_dir, "eval_results.json")
+    with open(json_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    csv_path = os.path.join(output_dir, "eval_results.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "value"])
+        for k, v in sorted(results.items()):
+            writer.writerow([k, v])
+
+    log.info(f"Results → {json_path}")
+    log.info(f"Results → {csv_path}")
+
+
+def main() -> None:
+    args = parse_args()
+    exp_dir = os.path.abspath(args.exp_dir)
+    output_dir = os.path.abspath(args.output_dir or os.path.join(exp_dir, "eval"))
+    os.makedirs(output_dir, exist_ok=True)
+
+    log = OmniTokLogger(
+        name="omnitok-eval",
+        rank=0,
+        log_dir=os.path.join(output_dir, "logs"),
+    )
+    log.print_banner()
+
+    # --- Plots only mode ---
+    if args.plots_only:
+        log.info(f"Regenerating plots from {exp_dir}")
+        generate_plots(exp_dir, output_dir, log)
+        return
+
+    # --- Device ---
+    device = torch.device(
+        args.device if (args.device == "cpu" or not torch.cuda.is_available()) else "cuda"
+    )
+    log.info(f"Device: {device}")
+
+    # --- Find checkpoint ---
+    ckpt_path = args.checkpoint or _find_latest_checkpoint(
+        os.path.join(exp_dir, "checkpoints")
+    )
+    if ckpt_path is None:
+        log.error(f"No checkpoint found in {exp_dir}/checkpoints/. Use --checkpoint.")
+        sys.exit(1)
+    log.info(f"Checkpoint: {ckpt_path}")
+
+    # --- Load model from saved config ---
+    tokenizer, cfg = load_tokenizer(exp_dir, ckpt_path, device, log)
+
+    # --- Build val dataloader ---
+    from omnitok.data.datasets import ImageFolderDataset
+    from torch.utils.data import DataLoader
+
+    data_dir = args.data_dir or cfg.data.get("root", None)
+    if not data_dir:
+        log.error("No data dir: pass --data-dir or set data.root in training config")
+        sys.exit(1)
+
+    image_size = cfg.model.encoder.get("img_size", 256)
+    dataset = ImageFolderDataset(root=data_dir, image_size=image_size, split="val")
+    val_loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=(device.type == "cuda"),
+        drop_last=False,
+    )
+    log.info(f"Val dataset: {len(dataset)} images from {data_dir}")
+
+    # --- Run metrics ---
+    from omnitok.evaluation.evaluator import TokenizerEvaluator
 
     evaluator = TokenizerEvaluator(
         run_rfid=not args.skip_rfid,
@@ -126,122 +300,29 @@ def run_evaluation(
         device=device,
     )
 
-    # Build val dataloader
-    from omnitok.data.datasets import ImageFolderDataset
-    from omnitok.data.transforms import build_eval_transform
-    from torch.utils.data import DataLoader
-
-    transform = build_eval_transform(256)
-    dataset = ImageFolderDataset(root=args.data_dir, transform=transform)
-    val_loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-
-    log.info(f"Evaluating on {len(dataset)} images from {args.data_dir}")
-
-    # Run evaluation
+    log.info("Running evaluation metrics...")
     results = evaluator.evaluate(
         model=tokenizer,
-        dataloader=val_loader,
+        val_loader=val_loader,
+        n_batches=args.n_batches,
     )
 
-    # Print results table
     log.print_metrics_table(results, step=0, title="Evaluation Results")
 
-    return results
-
-
-def save_results(results: Dict[str, float], output_dir: str, log: OmniTokLogger) -> None:
-    """Save evaluation results to JSON and CSV.
-
-    Args:
-        results: Metric results dict.
-        output_dir: Output directory.
-        log: OmniTokLogger.
-    """
-    import csv
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    # JSON
-    json_path = os.path.join(output_dir, "eval_results.json")
-    with open(json_path, "w") as f:
-        json.dump(results, f, indent=2)
-    log.info(f"Results JSON → {json_path}")
-
-    # CSV (for pgfplots / pandas)
-    csv_path = os.path.join(output_dir, "eval_results.csv")
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["metric", "value"])
-        for k, v in sorted(results.items()):
-            writer.writerow([k, v])
-    log.info(f"Results CSV → {csv_path}")
-
-
-def generate_plots(output_dir: str, log: OmniTokLogger) -> None:
-    """Generate publication-quality plots from saved results.
-
-    Args:
-        output_dir: Directory containing eval_results.json / metrics.json.
-        log: OmniTokLogger.
-    """
-    plots = PlotGenerator(output_dir=os.path.join(output_dir, "figures"))
-
-    # If metrics.json exists (from training), plot loss curves
-    metrics_path = os.path.join(output_dir, "metrics.json")
-    if os.path.exists(metrics_path):
-        with open(metrics_path) as f:
-            metrics_data = json.load(f)
-
-        if "history" in metrics_data:
-            plots.plot_loss_curves(metrics_data["history"], fmt="pdf")
-            log.info("Generated loss curves (PDF)")
-
-    log.success(f"Figures → {os.path.join(output_dir, 'figures')}")
-
-
-def main() -> None:
-    """Evaluation entry point."""
-    args = parse_args()
-
-    log = OmniTokLogger(
-        name="omnitok-eval",
-        rank=0,
-        log_dir=os.path.join(args.output_dir, "logs"),
+    # --- Save reconstruction images ---
+    artifact_mgr = ArtifactManager(
+        output_dir=os.path.join(output_dir, "figures"),
+        dpi=150,
     )
-    log.print_banner()
+    save_recon_images(tokenizer, val_loader, artifact_mgr, device, args.n_recon_images, log)
 
-    if args.plots_only:
-        results_dir = args.results_dir or args.output_dir
-        log.info(f"Generating plots from {results_dir}")
-        generate_plots(results_dir, log)
-        return
+    # --- Save metric numbers ---
+    save_results(results, output_dir, log)
 
-    if not args.checkpoint:
-        log.error("--checkpoint is required for evaluation")
-        sys.exit(1)
+    # --- Generate plots ---
+    generate_plots(exp_dir, output_dir, log)
 
-    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    log.info(f"Device: {device}")
-
-    # Load model
-    tokenizer = load_tokenizer(args.checkpoint, device, log)
-
-    # Run evaluation
-    results = run_evaluation(tokenizer, args, log)
-
-    # Save results
-    save_results(results, args.output_dir, log)
-
-    # Generate plots
-    generate_plots(args.output_dir, log)
-
-    log.success("Evaluation complete!")
+    log.success(f"Evaluation complete! → {output_dir}")
 
 
 if __name__ == "__main__":

@@ -1,25 +1,23 @@
 """Tests for omnitok.evaluation module and projector heads."""
 
 import tempfile
-from pathlib import Path
 
 import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from omnitok.evaluation.evaluator import TokenizerEvaluator
 from omnitok.evaluation.gaussianity import GaussianityEvaluator
 from omnitok.evaluation.linear_probe import LinearProbeEvaluator
 from omnitok.evaluation.rfid import RFIDEvaluator, _tensor_to_uint8
-from omnitok.evaluation.evaluator import TokenizerEvaluator
 from omnitok.models.heads.projector import (
+    IdentityProjector,
     LinearProjector,
     MLP2Projector,
     MLP3Projector,
-    IdentityProjector,
     build_projector,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -126,24 +124,23 @@ class TestGaussianityEvaluator:
 class TestLinearProbeEvaluator:
     def test_basic_fit(self):
         ev = LinearProbeEvaluator(epochs=1)
-        
+
         class DummyEncoder(nn.Module):
             def forward(self, x):
                 return x.view(x.shape[0], -1)
-                
+
         encoder = DummyEncoder()
-        
+
         # Create dummy dataloader
         n_train = 32
-        d = 16
         n_classes = 2
-        
+
         imgs = torch.randn(n_train, 1, 4, 4)  # flattens to 16
         labels = torch.randint(0, n_classes, (n_train,))
         ds = torch.utils.data.TensorDataset(imgs, labels)
         ds.classes = ["A", "B"]
         loader = DataLoader(ds, batch_size=16)
-        
+
         result = ev.compute_from_model(encoder, loader, loader, torch.device("cpu"))
         assert "linear_probe_acc" in result
         assert "best_classifier" in result
@@ -162,7 +159,6 @@ class TestRFIDEvaluator:
         assert out.min() >= 0 and out.max() <= 255
 
     def test_compute_saves_images(self):
-        ev = RFIDEvaluator(verbose=False)
         real = make_fake_images(4, 16)
         recon = make_fake_images(4, 16)
         with tempfile.TemporaryDirectory() as tmp:
@@ -171,8 +167,9 @@ class TestRFIDEvaluator:
             real_dir = P(tmp) / "real"
             recon_dir = P(tmp) / "recon"
             real_dir.mkdir(), recon_dir.mkdir()
-            from omnitok.evaluation.rfid import _tensor_to_uint8
             from PIL import Image
+
+            from omnitok.evaluation.rfid import _tensor_to_uint8
             for i in range(4):
                 Image.fromarray(_tensor_to_uint8(real[i])).save(real_dir / f"{i:06d}.png")
                 Image.fromarray(_tensor_to_uint8(recon[i])).save(recon_dir / f"{i:06d}.png")

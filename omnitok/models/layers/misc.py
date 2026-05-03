@@ -32,18 +32,14 @@ class PatchDropout(nn.Module):
     Reference: https://arxiv.org/abs/2212.00794
     """
 
-    def __init__(
-            self,
-            prob: float = 0.5,
-            exclude_first_token: bool = True
-    ):
+    def __init__(self, prob: float = 0.5, exclude_first_token: bool = True):
         super().__init__()
-        assert 0 <= prob < 1.
+        assert 0 <= prob < 1.0
         self.prob = prob
         self.exclude_first_token = exclude_first_token  # exclude CLS token
 
     def forward(self, x):
-        if not self.training or self.prob == 0.:
+        if not self.training or self.prob == 0.0:
             return x
 
         if self.exclude_first_token:

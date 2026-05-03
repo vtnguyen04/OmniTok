@@ -14,3 +14,7 @@ gan:
 gaussianity:
   enabled: false           # T9: set to true to add L_gauss = MSE(Cov(z), I)
   weight: 0.1
+
+latent_norm:
+  enabled: false           # AIOTok-style: soft constraint mean(z)≈0, std(z)≈1
+  weight: 0.01             # Gentle — does not crush semantic content

@@ -42,9 +42,7 @@ class GANLoss(nn.Module):
         lecam_ema_decay: float = 0.999,
     ) -> None:
         super().__init__()
-        self.discriminator = NLayerDiscriminator(
-            input_nc=3, n_layers=n_layers, use_actnorm=False
-        ).apply(weights_init)
+        self.discriminator = NLayerDiscriminator(input_nc=3, n_layers=n_layers, use_actnorm=False).apply(weights_init)
         self.disc_start = disc_start
         self.disc_weight = disc_weight
         self.lecam_weight = lecam_weight
@@ -81,9 +79,7 @@ class GANLoss(nn.Module):
 
         return {"total": total, "gan": gan_loss.detach()}
 
-    def discriminator_loss(
-        self, inputs: Tensor, reconstructions: Tensor, global_step: int
-    ) -> dict[str, Tensor]:
+    def discriminator_loss(self, inputs: Tensor, reconstructions: Tensor, global_step: int) -> dict[str, Tensor]:
         """Discriminator loss: distinguish real from fake.
 
         Args:
@@ -96,7 +92,13 @@ class GANLoss(nn.Module):
         """
         if not self.should_train(global_step):
             zero = torch.zeros(1, device=inputs.device)
-            return {"total": zero, "d_loss": zero}
+            return {
+                "total": zero,
+                "d_loss": zero,
+                "logits_real": zero,
+                "logits_fake": zero,
+                "lecam": zero
+            }
 
         for p in self.discriminator.parameters():
             p.requires_grad = True
@@ -115,8 +117,12 @@ class GANLoss(nn.Module):
                 + torch.mean(F.relu(self.ema_real_mean - fake_mean) ** 2)
             ) * self.lecam_weight
             # Update EMA
-            self.ema_real_mean = self.ema_real_mean * self.lecam_ema_decay + real_mean.detach() * (1 - self.lecam_ema_decay)
-            self.ema_fake_mean = self.ema_fake_mean * self.lecam_ema_decay + fake_mean.detach() * (1 - self.lecam_ema_decay)
+            self.ema_real_mean = self.ema_real_mean * self.lecam_ema_decay + real_mean.detach() * (
+                1 - self.lecam_ema_decay
+            )
+            self.ema_fake_mean = self.ema_fake_mean * self.lecam_ema_decay + fake_mean.detach() * (
+                1 - self.lecam_ema_decay
+            )
 
         total = d_loss + lecam_loss
 

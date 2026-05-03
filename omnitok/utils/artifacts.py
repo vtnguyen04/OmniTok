@@ -57,8 +57,9 @@ class ArtifactManager:
         Returns:
             Saved file path.
         """
-        originals = originals.detach().cpu().clamp(0, 1)
-        recons = recons.detach().cpu().clamp(0, 1)
+        # Caller is responsible for denormalization; just ensure valid range.
+        originals = originals.detach().cpu().float().clamp(0, 1)
+        recons = recons.detach().cpu().float().clamp(0, 1)
 
         # Interleave: [orig0, recon0, orig1, recon1, ...]
         pairs = torch.stack([originals, recons], dim=1).flatten(0, 1)
@@ -158,8 +159,11 @@ class ArtifactManager:
         fname = filename or f"attn_step{step:07d}.png"
         path = os.path.join(self.output_dir, "attn", fname)
 
-        fig, axes = plt.subplots(1, min(attn.shape[0], 4) + 1 if attn.ndim == 3 else 1,
-                                  figsize=(4 * (min(attn.shape[0], 4) + 1) if attn.ndim == 3 else 4, 4))
+        fig, axes = plt.subplots(
+            1,
+            min(attn.shape[0], 4) + 1 if attn.ndim == 3 else 1,
+            figsize=(4 * (min(attn.shape[0], 4) + 1) if attn.ndim == 3 else 4, 4),
+        )
 
         if attn.ndim == 3:
             axes = axes if hasattr(axes, "__len__") else [axes]

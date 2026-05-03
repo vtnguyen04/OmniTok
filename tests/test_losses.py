@@ -1,14 +1,13 @@
 """Tests for loss modules — alignment, reconstruction, KL, GAN."""
 
-import pytest
 import torch
 
-from omnitok.registry import ALIGNMENT_REGISTRY, LOSS_REGISTRY
 from omnitok.losses.alignment.cosine import CosineAlignmentLoss
-from omnitok.losses.alignment.relational import RelationalKDLoss
 from omnitok.losses.alignment.prediction import PredictionAlignmentLoss
-from omnitok.losses.kl import KLLoss
+from omnitok.losses.alignment.relational import RelationalKDLoss
 from omnitok.losses.gaussianity import GaussianityLoss
+from omnitok.losses.kl import KLLoss
+from omnitok.registry import ALIGNMENT_REGISTRY, LOSS_REGISTRY
 
 
 class TestCosineAlignmentLoss:
@@ -22,11 +21,11 @@ class TestCosineAlignmentLoss:
         assert loss.ndim == 0
 
     def test_identical_features_low_loss(self):
-        """Identical features should have very low loss."""
+        """Loss ≈ 0 when student == teacher."""
         loss_fn = CosineAlignmentLoss()
-        x = torch.randn(2, 16, 64)
-        loss = loss_fn(x, x)
-        assert loss.item() < -0.9  # Negative cosine, close to -1
+        feat = torch.randn(4, 256, 1024)
+        loss = loss_fn(feat, feat)
+        assert loss.item() < 1e-6  # Close to 0
 
     def test_gradient_flows_to_student(self):
         """Gradient flows to student but not teacher."""
@@ -81,7 +80,7 @@ class TestPredictionAlignmentLoss:
         t = torch.randn(2, 16, 64)
         loss = loss_fn(s, t)
         loss.backward()
-        has_grad = any(p.grad is not None for p in loss_fn.predictor.parameters())
+        has_grad = any(p.grad is not None for p in loss_fn.projector.parameters())
         assert has_grad
 
 
@@ -92,7 +91,7 @@ class TestKLLoss:
         loss_fn = KLLoss(weight=1e-4)
         mean = torch.randn(4, 32)
         logvar = torch.randn(4, 32)
-        result = loss_fn(mean, logvar)
+        result = loss_fn(mean=mean, logvar=logvar)
         assert "total" in result and "kl_raw" in result
 
     def test_zero_mean_unit_var_low_loss(self):
@@ -100,7 +99,7 @@ class TestKLLoss:
         loss_fn = KLLoss(weight=1.0)
         mean = torch.zeros(4, 32)
         logvar = torch.zeros(4, 32)
-        result = loss_fn(mean, logvar)
+        result = loss_fn(mean=mean, logvar=logvar)
         assert result["kl_raw"].item() < 0.01
 
 

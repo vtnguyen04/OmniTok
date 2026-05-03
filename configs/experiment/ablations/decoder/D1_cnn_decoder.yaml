@@ -1,0 +1,37 @@
+# D1 — Decoder Ablation: CNN decoder (REPA-E/VA-VAE style)
+# @package _global_
+# Compare CNN decoder (fast convergence, spatial inductive bias) vs ViT pixel decoder
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: cnn_decoder
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: true
+    vit_feature_bottleneck: 32
+  decoder:
+    z_channels: 32    # Must match encoder bottleneck dim
+
+loss:
+  latent_norm:
+    enabled: true
+    weight: 0.01
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+
+training:
+  max_steps: 200000
+
+data:
+  batch_size: 256
+
+exp_name: "D1_cnn_decoder"
+notes: "Decoder ablation: CNN decoder (REPA-E) + ViT encoder + cosine align"

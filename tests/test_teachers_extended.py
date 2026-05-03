@@ -1,11 +1,12 @@
 """Unit tests for SAM and Depth Anything teachers."""
 
-import pytest
-import torch
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from omnitok.teachers.sam import SAMTeacher
+import torch
+
 from omnitok.teachers.depth_anything import DepthAnythingTeacher
+from omnitok.teachers.sam import SAMTeacher
+
 
 class TestSAMTeacher:
     """Test SAM teacher extraction logic."""
@@ -22,7 +23,7 @@ class TestSAMTeacher:
 
         teacher = SAMTeacher(model_name="sam_vit_b", device="cpu")
         x = torch.randn(2, 3, 256, 256)
-        
+
         feats = teacher(x)  # calls _extract_features
 
         # Check mock was called
@@ -50,7 +51,7 @@ class TestDepthAnythingTeacher:
         teacher = DepthAnythingTeacher(model_name="depth_anything_v2_small", device="cpu")
         # 224x224 input, patch_size 14 -> 16x16 patches = 256 patches.
         x = torch.randn(2, 3, 224, 224)
-        
+
         feats = teacher(x)
 
         # Should strip CLS token, returning (B, 256, 384)
@@ -71,7 +72,7 @@ class TestDepthAnythingTeacher:
         teacher = DepthAnythingTeacher(model_name="depth_anything_v2_small", device="cpu")
         # 256x256 input is not divisible by 14. Should be interpolated to 224x224 inside _extract_features.
         x = torch.randn(2, 3, 256, 256)
-        
+
         feats = teacher(x)
 
         # Model should have been called with interpolated input shape (2, 3, 224, 224)

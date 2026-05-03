@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Publication style
 sns.set_theme(style="whitegrid", palette="colorblind", font_scale=1.1)
-plt.rcParams.update({
-    "figure.dpi": 150,
-    "savefig.dpi": 300,
-    "font.family": "DejaVu Sans",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-})
+plt.rcParams.update(
+    {
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "font.family": "DejaVu Sans",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+    }
+)
 
 
 class PlotGenerator:
@@ -38,6 +40,27 @@ class PlotGenerator:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
+    # Distinct, colorblind-friendly palette — one color per metric
+    _METRIC_COLORS: Dict[str, str] = {
+        "loss/total": "#E74C3C",  # red
+        "loss/recon_pixel": "#2980B9",  # blue
+        "loss/recon_perceptual": "#8E44AD",  # purple
+        "loss/channel_balance": "#E67E22",  # orange
+        "loss/align_dinov2": "#27AE60",  # green
+        "loss/align_total": "#16A085",  # teal
+        "loss/gan_g": "#C0392B",  # dark red
+        "loss/disc": "#7F8C8D",  # gray
+        "loss/gaussianity": "#F1C40F",  # yellow
+    }
+
+    # Logical groupings → one subplot each
+    _PANEL_GROUPS: Dict[str, List[str]] = {
+        "Total Loss": ["loss/total"],
+        "Reconstruction": ["loss/recon_pixel", "loss/recon_perceptual", "loss/channel_balance"],
+        "Alignment": ["loss/align_dinov2", "loss/align_total"],
+        "GAN / Regularization": ["loss/gan_g", "loss/disc", "loss/gaussianity"],
+    }
+
     def plot_loss_curves(
         self,
         history: Dict[str, List[dict]],
@@ -46,11 +69,11 @@ class PlotGenerator:
         fmt: str = "png",
         filename: Optional[str] = None,
     ) -> str:
-        """Plot training loss curves from metrics history.
+        """Plot training loss curves — one clean subplot per loss group.
 
         Args:
             history: Dict of metric_name → [{"step": int, "value": float}, ...].
-            title: Plot title.
+            title: Overall figure title.
             smooth_window: Rolling average window for smoothing.
             fmt: Output format ("png" or "pdf").
             filename: Override default filename.
@@ -58,39 +81,104 @@ class PlotGenerator:
         Returns:
             Saved file path.
         """
+        import numpy as np
         import pandas as pd
 
-        fig, ax = plt.subplots(figsize=(10, 5))
+        existing = {k for k, v in history.items() if v}
 
-        for metric_name, entries in sorted(history.items()):
-            if not entries:
-                continue
-            steps = [e["step"] for e in entries]
-            values = [e["value"] for e in entries]
+        # Build active panels (skip panels with no data)
+        panels: Dict[str, List[str]] = {}
+        for panel_name, metrics in self._PANEL_GROUPS.items():
+            active = [m for m in metrics if m in existing]
+            if active:
+                panels[panel_name] = active
 
-            # Raw (faint)
-            ax.plot(steps, values, alpha=0.2, linewidth=0.8)
+        # Catch-all: metrics not assigned to any panel
+        assigned = {m for ms in self._PANEL_GROUPS.values() for m in ms}
+        extras = [m for m in sorted(existing) if m not in assigned]
+        if extras:
+            panels["Other"] = extras
 
-            # Smoothed
-            if len(values) >= smooth_window:
-                ser = pd.Series(values)
-                smoothed = ser.rolling(window=smooth_window, min_periods=1).mean()
-                ax.plot(steps, smoothed.tolist(), linewidth=1.8, label=metric_name)
-            else:
-                ax.plot(steps, values, linewidth=1.8, label=metric_name)
+        if not panels:
+            return ""
 
-        ax.set_xlabel("Step")
-        ax.set_ylabel("Loss")
-        ax.set_title(title)
-        ax.legend(loc="upper right", fontsize=9, framealpha=0.7)
-        fig.tight_layout()
+        n = len(panels)
+        BG = "#F8F9FA"
+        PANEL_BG = "#FFFFFF"
+        GRID_COLOR = "#E0E0E0"
+        TEXT_COLOR = "#2C3E50"
+
+        fig = plt.figure(figsize=(13, 4 * n), facecolor=BG)
+        fig.suptitle(title, fontsize=15, fontweight="bold", color=TEXT_COLOR, y=1.0)
+
+        axes = fig.subplots(n, 1)
+        if n == 1:
+            axes = [axes]
+
+        for ax, (panel_name, metrics) in zip(axes, panels.items()):
+            ax.set_facecolor(PANEL_BG)
+            ax.grid(True, color=GRID_COLOR, linewidth=0.7, zorder=0)
+            ax.spines[:].set_color(GRID_COLOR)
+
+            for metric in metrics:
+                entries = history.get(metric, [])
+                if not entries:
+                    continue
+                steps = np.array([e["step"] for e in entries])
+                vals = np.array([e["value"] for e in entries])
+                color = self._METRIC_COLORS.get(metric, "#555555")
+
+                # Faint raw trace
+                ax.plot(steps, vals, color=color, alpha=0.15, linewidth=0.9, zorder=1)
+
+                # Smoothed
+                ser = pd.Series(vals)
+                sm = ser.rolling(window=smooth_window, min_periods=1).mean().values
+                label = metric.replace("loss/", "")
+                ax.plot(steps, sm, color=color, linewidth=2.2, label=label, zorder=2, solid_capstyle="round")
+
+                # Annotate final value
+                ax.annotate(
+                    f"{sm[-1]:.4f}",
+                    xy=(steps[-1], sm[-1]),
+                    xytext=(6, 0),
+                    textcoords="offset points",
+                    fontsize=8,
+                    color=color,
+                    va="center",
+                    fontweight="bold",
+                )
+
+            ax.set_title(panel_name, fontsize=11, fontweight="bold", color=TEXT_COLOR, loc="left", pad=8)
+            ax.set_xlabel("Step", fontsize=9, color=TEXT_COLOR)
+            ax.tick_params(colors=TEXT_COLOR, labelsize=8)
+            ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+            ax.legend(
+                loc="upper right",
+                fontsize=9,
+                framealpha=0.9,
+                edgecolor=GRID_COLOR,
+                fancybox=True,
+                ncol=min(len(metrics), 3),
+            )
+            # Zero-line reference
+            ax.axhline(0, color=GRID_COLOR, linewidth=1.0, zorder=0)
+
+        fig.tight_layout(rect=[0, 0, 1, 0.98])
 
         fname = filename or f"loss_curves.{fmt}"
-        path = os.path.join(self.output_dir, fname)
-        fig.savefig(path, bbox_inches="tight")
+        if not os.path.isabs(fname):
+            path = os.path.join(self.output_dir, fname)
+        else:
+            path = fname
+
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        fig.savefig(path, bbox_inches="tight", facecolor=BG)
         plt.close(fig)
 
-        logger.info(f"Saved loss curves to {path}")
+        logger.info(f"Saved loss curves → {path}")
         return path
 
     def plot_ablation_bar(
@@ -137,7 +225,9 @@ class PlotGenerator:
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + max(values) * 0.01,
                 f"{v:.2f}",
-                ha="center", va="bottom", fontsize=9,
+                ha="center",
+                va="bottom",
+                fontsize=9,
             )
 
         ax.set_ylabel(metric)

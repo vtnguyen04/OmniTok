@@ -3,9 +3,9 @@
 import pytest
 import torch
 
+from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
 from omnitok.models.encoder.vision_transformer import DinoVisionTransformer
 from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
-from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
 
 
 @pytest.fixture

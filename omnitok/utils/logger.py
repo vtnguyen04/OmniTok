@@ -28,16 +28,18 @@ from rich.text import Text
 from rich.theme import Theme
 
 # OmniTok color theme
-OMNITOK_THEME = Theme({
-    "encoder": "bold cyan",
-    "teacher": "bold green",
-    "loss": "bold yellow",
-    "gan": "bold red",
-    "info": "bold blue",
-    "metric": "bold magenta",
-    "success": "bold green",
-    "warning": "bold yellow",
-})
+OMNITOK_THEME = Theme(
+    {
+        "encoder": "bold cyan",
+        "teacher": "bold green",
+        "loss": "bold yellow",
+        "gan": "bold red",
+        "info": "bold blue",
+        "metric": "bold magenta",
+        "success": "bold green",
+        "warning": "bold yellow",
+    }
+)
 
 BANNER = r"""
  ╔═══════════════════════════════════════════════════════╗
@@ -73,10 +75,15 @@ class OmniTokLogger:
         self.console = Console(theme=OMNITOK_THEME)
         self.name = name
 
-        # Setup Python logger
-        self.logger = logging.getLogger(name)
+        # Setup Python logger (Attach to root logger to capture all module logs)
+        self.logger = logging.getLogger()
         self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
         self.logger.handlers.clear()
+
+        # Suppress extremely noisy external loggers when root is DEBUG
+        logging.getLogger("matplotlib").setLevel(logging.WARNING)
+        logging.getLogger("PIL").setLevel(logging.WARNING)
+        logging.getLogger("fontTools").setLevel(logging.WARNING)
 
         if rank == 0:
             # Console handler with Rich
@@ -92,12 +99,8 @@ class OmniTokLogger:
         # File handler (all ranks)
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
-            file_handler = logging.FileHandler(
-                os.path.join(log_dir, f"train_rank{rank}.log")
-            )
-            file_handler.setFormatter(
-                logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-            )
+            file_handler = logging.FileHandler(os.path.join(log_dir, f"train_rank{rank}.log"))
+            file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
             self.logger.addHandler(file_handler)
 
     def print_banner(self) -> None:
@@ -132,6 +135,7 @@ class OmniTokLogger:
         else:
             # OmegaConf/DictConfig
             from omegaconf import OmegaConf
+
             _flatten(OmegaConf.to_container(config, resolve=True))
 
         self.console.print(table)
@@ -157,9 +161,7 @@ class OmniTokLogger:
 
         self.console.print(table)
 
-    def print_metrics_table(
-        self, metrics: Dict[str, float], step: int, title: str = "Metrics"
-    ) -> None:
+    def print_metrics_table(self, metrics: Dict[str, float], step: int, title: str = "Metrics") -> None:
         """Print metrics as a formatted table.
 
         Args:

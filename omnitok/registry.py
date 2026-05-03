@@ -45,14 +45,13 @@ class Registry:
         Raises:
             ValueError: If name is already registered.
         """
+
         def decorator(cls: Type) -> Type:
             if name in self._registry:
-                raise ValueError(
-                    f"[{self._name}] '{name}' is already registered. "
-                    f"Available: {self.available()}"
-                )
+                raise ValueError(f"[{self._name}] '{name}' is already registered. Available: {self.available()}")
             self._registry[name] = cls
             return cls
+
         return decorator
 
     def build(self, name: str, **kwargs: Any) -> Any:
@@ -69,10 +68,7 @@ class Registry:
             KeyError: If name is not registered.
         """
         if name not in self._registry:
-            raise KeyError(
-                f"[{self._name}] '{name}' is not registered. "
-                f"Available: {self.available()}"
-            )
+            raise KeyError(f"[{self._name}] '{name}' is not registered. Available: {self.available()}")
         return self._registry[name](**kwargs)
 
     def get(self, name: str) -> Optional[Type]:

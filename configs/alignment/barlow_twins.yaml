@@ -1,0 +1,8 @@
+# Barlow Twins Alignment Loss
+# @package alignment
+type: "barlow_twins"
+weight: 1.0
+lambd: 0.005
+projector: "mlp3"
+projector_hidden_dim: 2048
+student_dim: 1024

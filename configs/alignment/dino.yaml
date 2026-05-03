@@ -1,0 +1,11 @@
+# DINO-style Distillation Loss
+# @package alignment
+type: "dino"
+weight: 1.0
+out_dim: 1024
+warmup_teacher_temp: 0.04
+teacher_temp: 0.04
+student_temp: 0.1
+projector: "mlp3"
+projector_hidden_dim: 2048
+student_dim: 1024

@@ -1,0 +1,13 @@
+# CNN Decoder — ported from REPA-E / VA-VAE / LightningDiT
+# Standard LDM-style decoder: ResBlock + GroupNorm + Swish + Attention + Upsample
+# REPA-E f16d32 config: 16×16 latent → 256×256 image
+# @package decoder
+type: "cnn_decoder"
+ch: 128                       # Base channel count (REPA-E default)
+out_ch: 3                     # RGB output
+ch_mult: [1, 1, 2, 2, 4]     # Channel multipliers per level → 4 upsamples: 16→32→64→128→256
+num_res_blocks: 2             # ResBlocks per level
+attn_resolutions: [16]        # Self-attention at 16×16 resolution
+dropout: 0.0
+z_channels: 32                # Must match encoder bottleneck dim
+resolution: 256               # Target output resolution

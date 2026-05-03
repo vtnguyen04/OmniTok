@@ -37,6 +37,7 @@ class OmniTokWandBLogger:
         config: Optional[Dict[str, Any]] = None,
         tags: Optional[List[str]] = None,
         enabled: bool = True,
+        run_id: Optional[str] = None,
     ) -> None:
         self.enabled = enabled
         self._run = None
@@ -46,10 +47,17 @@ class OmniTokWandBLogger:
 
         try:
             import wandb
+
             self._wandb = wandb
+
+            # Auto-resume if run_id is provided, otherwise let WandB generate one or use name
+            _id = run_id if run_id else wandb.util.generate_id()
+
             self._run = wandb.init(
                 project=project,
                 name=name,
+                id=_id,
+                resume="allow",
                 config=config or {},
                 tags=tags or [],
                 reinit=True,

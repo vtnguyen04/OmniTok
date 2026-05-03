@@ -1,6 +1,6 @@
 """Linear probing evaluation for OmniTok.
 
-Refactored from VTP to evaluate the semantic quality of the 
+Refactored from VTP to evaluate the semantic quality of the
 continuous latent space.
 """
 
@@ -35,15 +35,13 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 CROP_SIZE = 224
 RESIZE_SIZE = 256
 
-DEFAULT_LEARNING_RATES = (
-    1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4,
-    1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2, 0.1
-)
+DEFAULT_LEARNING_RATES = (1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2, 0.1)
 
 
 # ============================================================================
 # Distributed utilities
 # ============================================================================
+
 
 def is_main_process() -> bool:
     return not dist.is_initialized() or dist.get_rank() == 0
@@ -61,27 +59,33 @@ def get_rank() -> int:
 # Transforms
 # ============================================================================
 
+
 def make_train_transform(crop_size: int = CROP_SIZE) -> transforms.Compose:
-    return transforms.Compose([
-        transforms.RandomResizedCrop(crop_size, interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-    ])
+    return transforms.Compose(
+        [
+            transforms.RandomResizedCrop(crop_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        ]
+    )
 
 
 def make_eval_transform(resize_size: int = RESIZE_SIZE, crop_size: int = CROP_SIZE) -> transforms.Compose:
-    return transforms.Compose([
-        transforms.Resize(resize_size, interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.CenterCrop(crop_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize(resize_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(crop_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        ]
+    )
 
 
 # ============================================================================
 # Feature Extraction Model
 # ============================================================================
+
 
 class FeatureExtractor(nn.Module):
     """Wrapper that extracts intermediate layer features from OmniTok."""
@@ -100,7 +104,7 @@ class FeatureExtractor(nn.Module):
             List of (patch_tokens, cls_token) tuples for each requested layer
         """
         with torch.inference_mode():
-            with torch.amp.autocast(device_type='cuda', dtype=self.autocast_dtype):
+            with torch.amp.autocast(device_type="cuda", dtype=self.autocast_dtype):
                 # OmniTok encoder outputs (B, L, D) or (B, D) directly
                 features = self.encoder(images)
 
@@ -118,6 +122,7 @@ class FeatureExtractor(nn.Module):
 # ============================================================================
 # Linear Classifier
 # ============================================================================
+
 
 def create_linear_input(x_tokens_list, use_n_blocks: int, use_avgpool: bool) -> torch.Tensor:
     """Create input for linear classifier from intermediate features."""
@@ -174,6 +179,7 @@ class AllClassifiers(nn.Module):
 # Infinite Sampler
 # ============================================================================
 
+
 class InfiniteSampler(Sampler):
     """Wraps another sampler to yield an infinite stream of indices."""
 
@@ -185,7 +191,7 @@ class InfiniteSampler(Sampler):
 
     def __iter__(self):
         while True:
-            if hasattr(self.sampler, 'set_epoch'):
+            if hasattr(self.sampler, "set_epoch"):
                 self.sampler.set_epoch(self.epoch)
             yield from iter(self.sampler)
             self.epoch += 1
@@ -197,6 +203,7 @@ class InfiniteSampler(Sampler):
 # ============================================================================
 # Training
 # ============================================================================
+
 
 def scale_lr(learning_rate: float, batch_size: int) -> float:
     """Scale learning rate based on batch size."""
@@ -294,7 +301,11 @@ def evaluate(
     """Evaluate all classifiers and return accuracies."""
     linear_classifiers.eval()
 
-    classifiers_dict = linear_classifiers.module.classifiers_dict if hasattr(linear_classifiers, 'module') else linear_classifiers.classifiers_dict
+    classifiers_dict = (
+        linear_classifiers.module.classifiers_dict
+        if hasattr(linear_classifiers, "module")
+        else linear_classifiers.classifiers_dict
+    )
 
     correct = {k: 0 for k in classifiers_dict.keys()}
     total = 0
@@ -334,9 +345,10 @@ def evaluate(
 # Main
 # ============================================================================
 
+
 class LinearProbeEvaluator:
     """Linear probing evaluator using VTP's original SGD logic.
-    
+
     Refactored from VTP/tools/test_linear_probing_hf.py to integrate with OmniTok.
     Note: Full SGD linear probing is slow. For fast inline evaluation during
     training, consider reducing epochs or learning_rates.
@@ -365,15 +377,15 @@ class LinearProbeEvaluator:
     ) -> Dict[str, float]:
         """Run full linear probing evaluation on the encoder."""
         num_classes = 1000  # Default ImageNet
-        if hasattr(train_loader.dataset, 'classes'):
+        if hasattr(train_loader.dataset, "classes"):
             num_classes = len(train_loader.dataset.classes)
 
         n_last_blocks_list = (1,)
         n_last_blocks = 1
 
-        if self.precision in ('bf16', 'bfloat16'):
+        if self.precision in ("bf16", "bfloat16"):
             autocast_dtype = torch.bfloat16
-        elif self.precision in ('fp16', 'float16'):
+        elif self.precision in ("fp16", "float16"):
             autocast_dtype = torch.float16
         else:
             autocast_dtype = torch.float32
@@ -413,6 +425,8 @@ class LinearProbeEvaluator:
                 self.epoch_length,
                 device,
             )
+            if is_main_process():
+                logger.info(f"Epoch {epoch} train loss: {train_loss:.4f}")
 
             accuracies = evaluate(feature_model, linear_classifiers, val_loader, device)
 

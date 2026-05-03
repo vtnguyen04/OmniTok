@@ -38,10 +38,7 @@ class SAMTeacher(BaseTeacher):
     def __init__(self, model_name: str = "sam_vit_b", device: Optional[str] = None) -> None:
         super().__init__(model_name=model_name, device=device)
         if model_name not in _SAM_CONFIGS:
-            raise ValueError(
-                f"Unknown SAM model: {model_name}. "
-                f"Available: {list(_SAM_CONFIGS.keys())}"
-            )
+            raise ValueError(f"Unknown SAM model: {model_name}. Available: {list(_SAM_CONFIGS.keys())}")
         self._config = _SAM_CONFIGS[model_name]
 
     def _build_model(self) -> nn.Module:
@@ -56,7 +53,7 @@ class SAMTeacher(BaseTeacher):
         """Extract patch features from SAM.
 
         Args:
-            x: Input images (B, 3, H, W). 
+            x: Input images (B, 3, H, W).
 
         Returns:
             Patch features (B, N, D). For SAM, timm returns (B, C, H_out, W_out).

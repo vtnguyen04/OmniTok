@@ -1,0 +1,36 @@
+# @package _global_
+# @package _global_
+# Mini Aligned - Fast test for CItraining on mini dataset (1K images)
+# Pretrained ViT-B encoder + cosine alignment to DINOv2-L teacher (REPA-E style)
+# Alignment uses pre-bottleneck features (768-dim) — full signal, not bottleneck (32-dim)
+defaults:
+  - /model/encoder: vit_base
+  - /model/decoder: pixel_decoder_base
+  - /teacher: dinov2
+  - /alignment: cosine
+  - /loss: standard
+  - _self_
+
+model:
+  encoder:
+    pretrained: true   # load DINOv2-B weights → stable features from step 1
+
+# Loss weights — reconstruction-dominant with alignment as regularization (REPA-E style)
+# alignment.weight=0.05: REPA-E recommends 0.1; we use 0.05 to prioritize color fidelity
+# perceptual_weight=1.0: full LPIPS for color and texture quality
+loss:
+  reconstruction:
+    perceptual_weight: 0.5
+
+scheduler:
+  warmup_steps: 200
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+
+optimizer:
+  lr: 1e-4
+
+exp_name: "mini_aligned"
+notes: "REPA-E style: pretrained ViT-B + cosine alignment (pre-bottleneck 768-dim) to DINOv2-L"

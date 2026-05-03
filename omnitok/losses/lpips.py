@@ -1,7 +1,7 @@
 """This file contains code for LPIPS.
 
 This file may have been modified by Bytedance Ltd. and/or its affiliates (“Bytedance's Modifications”).
-All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its affiliates. 
+All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its affiliates.
 
 Reference:
     https://github.com/richzhang/PerceptualSimilarity/
@@ -10,6 +10,7 @@ Reference:
 """
 
 import hashlib
+import logging
 import os
 from collections import namedtuple
 
@@ -19,20 +20,16 @@ import torch.nn as nn
 from torchvision import models
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 _LPIPS_MEAN = [-0.030, -0.088, -0.188]
 _LPIPS_STD = [0.458, 0.448, 0.450]
 
-URL_MAP = {
-    "vgg_lpips": "https://heibox.uni-heidelberg.de/f/607503859c864bc1b30b/?dl=1"
-}
+URL_MAP = {"vgg_lpips": "https://heibox.uni-heidelberg.de/f/607503859c864bc1b30b/?dl=1"}
 
-CKPT_MAP = {
-    "vgg_lpips": "vgg.pth"
-}
+CKPT_MAP = {"vgg_lpips": "vgg.pth"}
 
-MD5_MAP = {
-    "vgg_lpips": "d507d7349b931f0638a25a48a722f98a"
-}
+MD5_MAP = {"vgg_lpips": "d507d7349b931f0638a25a48a722f98a"}
 
 
 def download(url, local_path, chunk_size=1024):
@@ -57,7 +54,7 @@ def get_ckpt_path(name, root, check=False):
     assert name in URL_MAP
     path = os.path.join(root, CKPT_MAP[name])
     if not os.path.exists(path) or (check and not md5_hash(path) == MD5_MAP[name]):
-        print("Downloading {} model from {} to {}".format(name, URL_MAP[name], path))
+        logger.info("Downloading {} model from {} to {}".format(name, URL_MAP[name], path))
         download(URL_MAP[name], path)
         md5 = md5_hash(path)
         assert md5 == MD5_MAP[name], md5
@@ -81,7 +78,7 @@ class LPIPS(nn.Module):
             param.requires_grad = False
 
     def load_pretrained(self):
-        workspace = os.environ.get('WORKSPACE', '')
+        workspace = os.environ.get("WORKSPACE", "")
         VGG_PATH = get_ckpt_path("vgg_lpips", os.path.join(workspace, "pretrained/lpips"), check=True)
         self.load_state_dict(torch.load(VGG_PATH, map_location=torch.device("cpu")), strict=False)
 
@@ -100,8 +97,8 @@ class LPIPS(nn.Module):
 
         res = [spatial_average(lins[kk].model(diffs[kk]), keepdim=True) for kk in range(len(self.chns))]
         val = res[0]
-        for l in range(1, len(self.chns)):
-            val += res[l]
+        for idx in range(1, len(self.chns)):
+            val += res[idx]
         return val
 
 
