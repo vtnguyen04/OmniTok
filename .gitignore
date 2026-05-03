@@ -29,3 +29,9 @@ logs/
 *.swo
 *~
 .DS_Store
+
+# Scratch and run outputs
+.hydra/
+scratch/
+*.log
+/test_*.py
