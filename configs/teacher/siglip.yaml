@@ -4,7 +4,7 @@
 enabled: true
 names: ["siglip"]
 siglip:
-  model_name: "ViT-SO400M-14-SigLIP-384"
+  model_name: "siglip_vit_so400m_14_384"
   feature_dim: 1152
   freeze: true
   use_patch_tokens: true

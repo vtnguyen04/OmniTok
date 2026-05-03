@@ -1,0 +1,6 @@
+# Linear Bottleneck (AE style)
+# @package model.bottleneck
+type: "linear"
+in_dim: 768
+latent_dim: 32
+dropout: 0.0

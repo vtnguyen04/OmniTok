@@ -6,6 +6,7 @@ features and frozen teacher features.
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import torch.nn as nn
 from torch import Tensor
@@ -19,18 +20,19 @@ class BaseAlignmentLoss(ABC, nn.Module):
     """
 
     @abstractmethod
-    def compute(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
+    def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         """Compute alignment loss between student and teacher features.
 
         Args:
             student_features: Tokenizer encoder features (B, N, D_s).
             teacher_features: Frozen teacher features (B, N, D_t).
+            mask: Optional binary mask of kept tokens (1=kept, 0=masked).
 
         Returns:
             Scalar alignment loss.
         """
         ...
 
-    def forward(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
+    def forward(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         """Forward pass — delegates to compute()."""
-        return self.compute(student_features, teacher_features)
+        return self.compute(student_features, teacher_features, mask)

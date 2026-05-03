@@ -1,0 +1,32 @@
+# @package _global_
+# @package _global_
+# T3 — Frozen DINOv2-L + Direct Cosine (REPA-E style)
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  student_dim: 1024
+  projector: "linear"
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2
+
+exp_name: "T3_frozen_dino_cosine"
+notes: "Direct Cosine (REPA-E style): point-wise alignment with modular bottleneck."

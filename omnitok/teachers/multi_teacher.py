@@ -38,6 +38,7 @@ class MultiTeacher(nn.Module):
         super().__init__()
         self.teacher_names = list(teachers.keys())
         self.teachers = nn.ModuleDict(teachers)
+        self.common_dim = common_dim
 
         # Build normalizers/projectors per teacher
         self.projectors = nn.ModuleDict()
@@ -53,10 +54,14 @@ class MultiTeacher(nn.Module):
                 self.projectors[name] = nn.Identity()
 
         # PHI-S learnable log-variance for adaptive loss weighting
-        self.log_vars = nn.ParameterDict({
-            name: nn.Parameter(torch.zeros(1))
-            for name in teachers
-        })
+        self.log_vars = nn.ParameterDict({name: nn.Parameter(torch.zeros(1)) for name in teachers})
+
+    @property
+    def feature_dim(self) -> int:
+        """Get the output feature dimension of the teachers."""
+        if self.common_dim is not None:
+            return self.common_dim
+        return next(iter(self.teachers.values())).feature_dim
 
     @torch.no_grad()
     def extract_all(self, x: Tensor) -> Dict[str, Tensor]:

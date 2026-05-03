@@ -2,7 +2,8 @@
 # T7 experiment — novel teacher combination, depth not used before for tokenizers
 # @package teacher
 enabled: true
-names: ["dinov2", "depth"]
+names: ["dinov2", "depth_anything"]
+common_dim: 1024
 phi_s_balancing: true
 dinov2:
   model_name: "dinov2_vitl14"
@@ -10,7 +11,7 @@ dinov2:
   freeze: true
   use_patch_tokens: true
   num_prefix_tokens: 1
-depth:
+depth_anything:
   model_name: "depth_anything_v2_vitl"
   feature_dim: 1024
   freeze: true

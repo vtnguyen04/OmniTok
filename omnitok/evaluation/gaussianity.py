@@ -41,9 +41,7 @@ class GaussianityEvaluator:
 
     def __init__(self, significance: float = 5.0, max_samples: int = 50000) -> None:
         if significance not in self._SIG_LEVELS:
-            raise ValueError(
-                f"significance must be one of {list(self._SIG_LEVELS)}, got {significance}"
-            )
+            raise ValueError(f"significance must be one of {list(self._SIG_LEVELS)}, got {significance}")
         self.significance = significance
         self._sig_idx = self._SIG_LEVELS[significance]
         self.max_samples = max_samples
@@ -92,8 +90,7 @@ class GaussianityEvaluator:
         score = n_gaussian / n_dims if n_dims > 0 else 0.0
 
         logger.info(
-            f"Gaussianity: {n_gaussian}/{n_dims} dims pass at {self.significance}% "
-            f"(score={score:.4f}, N={n_samples})"
+            f"Gaussianity: {n_gaussian}/{n_dims} dims pass at {self.significance}% (score={score:.4f}, N={n_samples})"
         )
 
         return {

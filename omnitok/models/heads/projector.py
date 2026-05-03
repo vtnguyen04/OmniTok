@@ -8,6 +8,8 @@ Ablation study (from UNE paper):
 All projectors are registered in PROJECTOR_REGISTRY.
 """
 
+from typing import Optional
+
 import torch.nn as nn
 from torch import Tensor
 
@@ -22,12 +24,12 @@ class BaseProjector(nn.Module):
         out_dim: Output (teacher) feature dimension.
     """
 
-    def __init__(self, in_dim: int, out_dim: int) -> None:
+    def __init__(self, in_dim: int, out_dim: int, **kwargs) -> None:
         super().__init__()
         self.in_dim = in_dim
         self.out_dim = out_dim
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         """Project student features toward teacher space.
 
         Args:
@@ -55,12 +57,12 @@ class LinearProjector(BaseProjector):
         out_dim: Teacher feature dimension.
     """
 
-    def __init__(self, in_dim: int, out_dim: int) -> None:
+    def __init__(self, in_dim: int, out_dim: int, **kwargs) -> None:
         super().__init__(in_dim, out_dim)
         self.proj = nn.Linear(in_dim, out_dim, bias=False)
         nn.init.trunc_normal_(self.proj.weight, std=0.02)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         return self.proj(x)
 
 
@@ -76,7 +78,7 @@ class MLP2Projector(BaseProjector):
         hidden_dim: Hidden layer dimension. Defaults to max(in_dim, out_dim).
     """
 
-    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 0) -> None:
+    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 0, **kwargs) -> None:
         super().__init__(in_dim, out_dim)
         hidden = hidden_dim or max(in_dim, out_dim)
         self.proj = nn.Sequential(
@@ -91,7 +93,7 @@ class MLP2Projector(BaseProjector):
             if isinstance(m, nn.Linear):
                 nn.init.trunc_normal_(m.weight, std=0.02)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         return self.proj(x)
 
 
@@ -108,7 +110,7 @@ class MLP3Projector(BaseProjector):
         hidden_dim: Hidden layer dimension.
     """
 
-    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 0) -> None:
+    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 0, **kwargs) -> None:
         super().__init__(in_dim, out_dim)
         hidden = hidden_dim or max(in_dim, out_dim)
         self.proj = nn.Sequential(
@@ -127,7 +129,7 @@ class MLP3Projector(BaseProjector):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         return self.proj(x)
 
 
@@ -135,14 +137,12 @@ class MLP3Projector(BaseProjector):
 class IdentityProjector(BaseProjector):
     """No-op projector — used when in_dim == out_dim and no projection needed."""
 
-    def __init__(self, in_dim: int, out_dim: int) -> None:
+    def __init__(self, in_dim: int, out_dim: int, **kwargs) -> None:
         super().__init__(in_dim, out_dim)
         if in_dim != out_dim:
-            raise ValueError(
-                f"IdentityProjector requires in_dim == out_dim, got {in_dim} != {out_dim}"
-            )
+            raise ValueError(f"IdentityProjector requires in_dim == out_dim, got {in_dim} != {out_dim}")
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         return x
 
 
@@ -168,10 +168,102 @@ def build_projector(
     if proj_type == "linear":
         return PROJECTOR_REGISTRY.build("linear", in_dim=in_dim, out_dim=out_dim)
     if proj_type in ("mlp2", "mlp3"):
-        return PROJECTOR_REGISTRY.build(
-            proj_type, in_dim=in_dim, out_dim=out_dim, hidden_dim=hidden_dim
+        return PROJECTOR_REGISTRY.build(proj_type, in_dim=in_dim, out_dim=out_dim, hidden_dim=hidden_dim)
+    raise ValueError(f"Unknown projector '{proj_type}'. Available: {PROJECTOR_REGISTRY.available()}")
+@PROJECTOR_REGISTRY.register("vit_decoder")
+class ViTDecoderProjector(BaseProjector):
+    """ViT-based projector head.
+
+    Used in MAETok prediction alignment. Passes features through a lightweight
+    ViT decoder block stack instead of an MLP.
+
+    Args:
+        in_dim: Student feature dimension.
+        out_dim: Teacher feature dimension.
+        embed_dim: Decoder embedding dimension.
+        depth: Number of transformer blocks.
+        num_heads: Number of attention heads.
+        num_patches: Sequence length (N) for positional embeddings.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        embed_dim: int = 512,
+        depth: int = 4,
+        num_heads: int = 8,
+        num_patches: int = 256,
+        **kwargs
+    ) -> None:
+        super().__init__(in_dim, out_dim)
+        from omnitok.models.decoder.aux_decoder import AuxiliaryViTDecoder
+        self.decoder = AuxiliaryViTDecoder(
+            latent_dim=in_dim,
+            out_dim=out_dim,
+            embed_dim=embed_dim,
+            depth=depth,
+            num_heads=num_heads,
+            num_patches=num_patches,
         )
-    raise ValueError(
-        f"Unknown projector '{proj_type}'. "
-        f"Available: {PROJECTOR_REGISTRY.available()}"
-    )
+
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        return self.decoder(x, mask=mask)
+
+
+@PROJECTOR_REGISTRY.register("pixel_shuffle")
+class PixelShuffleProjector(BaseProjector):
+    """UniLIP-style upsampling projector.
+
+    Rearranges (B, N, C) into (B, H, W, C), applies pixel shuffle to increase
+    spatial resolution while decreasing channel dimension, then applies MLP.
+
+    Args:
+        in_dim: Student feature dimension.
+        out_dim: Teacher feature dimension.
+        scale_factor: Upsampling factor (e.g., 0.5 for 2x resolution increase).
+        hidden_dim: Hidden dimension for MLP.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        scale_factor: float = 0.5,
+        hidden_dim: int = 0,
+        **kwargs
+    ) -> None:
+        super().__init__(in_dim, out_dim)
+        self.scale_factor = scale_factor
+        # After pixel_shuffle(x, scale_factor=0.5), channels = C // (scale_factor**2)
+        # For scale_factor=0.5, channels = C * 4
+        new_in_dim = int(in_dim / (scale_factor * scale_factor))
+
+        hidden = hidden_dim or max(new_in_dim, out_dim)
+        self.proj = nn.Sequential(
+            nn.Linear(new_in_dim, hidden, bias=True),
+            nn.GELU(),
+            nn.Linear(hidden, out_dim, bias=True)
+        )
+
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        # x: (B, N, C)
+        B, N, C = x.size()
+        H = W = int(N ** 0.5)
+        if H * W != N:
+            # If there's a cls token, we assume it's stripped before projector.
+            raise ValueError(f"PixelShuffleProjector requires spatial tokens only (N={N} is not a perfect square).")
+
+        x = x.view(B, W, H, C) # N, W, H, C
+        # N, W, H * scale, C // scale
+        x = x.view(B, W, int(H * self.scale_factor), int(C / self.scale_factor))
+        # N, H * scale, W, C // scale
+        x = x.permute(0, 2, 1, 3).contiguous()
+        # N, H * scale, W * scale, C // (scale ** 2)
+        x = x.view(B, int(H * self.scale_factor), int(W * self.scale_factor), int(C / (self.scale_factor * self.scale_factor)))
+        x = x.permute(0, 2, 1, 3).contiguous()
+
+        # Flatten back to sequence
+        x = x.view(B, -1, x.size(-1))
+
+        return self.proj(x)

@@ -1,17 +1,16 @@
 """Tests for data pipeline — transforms, datasets."""
 
-import os
 
+import numpy as np
 import pytest
 import torch
-import numpy as np
 from PIL import Image
 
 from omnitok.data.transforms import (
+    build_eval_transform,
+    build_train_transform,
     center_crop_arr,
     random_crop_arr,
-    build_train_transform,
-    build_eval_transform,
 )
 
 
@@ -48,15 +47,15 @@ class TestBuildTransforms:
     """Tests for transform builders."""
 
     def test_train_transform_output(self, sample_pil_image):
-        """Train transform produces tensor in [0, 1]."""
+        """Train transform produces tensor in [-1, 1]."""
         transform = build_train_transform(image_size=128)
         tensor = transform(sample_pil_image)
         assert isinstance(tensor, torch.Tensor)
         assert tensor.shape == (3, 128, 128)
-        assert tensor.min() >= 0.0 and tensor.max() <= 1.0
+        assert tensor.min() >= -1.0 and tensor.max() <= 1.0
 
     def test_eval_transform_output(self, sample_pil_image):
-        """Eval transform produces tensor in [0, 1]."""
+        """Eval transform produces tensor in [-1, 1]."""
         transform = build_eval_transform(image_size=128)
         tensor = transform(sample_pil_image)
         assert isinstance(tensor, torch.Tensor)

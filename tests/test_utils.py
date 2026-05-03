@@ -7,7 +7,6 @@ import tempfile
 import pytest
 import torch
 
-
 # ────────────────────────────────────────────────────────────
 # MetricsTracker
 # ────────────────────────────────────────────────────────────
@@ -151,8 +150,9 @@ class TestOmniTokLogger:
         log.print_metrics_table({"loss/total": 0.5, "loss/recon": 0.3}, step=100)
 
     def test_training_progress_returns_progress(self):
-        from omnitok.utils.logger import OmniTokLogger
         from rich.progress import Progress
+
+        from omnitok.utils.logger import OmniTokLogger
         log = OmniTokLogger(name="test", rank=0)
         prog = log.training_progress(total_steps=1000)
         assert isinstance(prog, Progress)

@@ -1,0 +1,36 @@
+# @package _global_
+# @package _global_
+# T9 — Best config + Gaussianity Regularization (UNE theory)
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_teacher
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  student_dim: 1024
+
+loss:
+  gaussianity:
+    enabled: true
+    weight: 0.1
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2
+
+exp_name: "T9_gaussianity_reg"
+notes: "T5 + L_gauss regularization with modular bottleneck. Tests UNE hypothesis."

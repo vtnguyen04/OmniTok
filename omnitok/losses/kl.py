@@ -23,18 +23,24 @@ class KLLoss(nn.Module):
         super().__init__()
         self.weight = weight
 
-    def forward(self, mean: Tensor, logvar: Tensor) -> dict[str, Tensor]:
+    def forward(self, posterior=None, mean: Tensor = None, logvar: Tensor = None) -> dict[str, Tensor]:
         """Compute KL divergence.
 
         Args:
+            posterior: DiagonalGaussianDistribution object.
             mean: Posterior mean (B, D) or (B, N, D).
             logvar: Posterior log-variance, same shape as mean.
 
         Returns:
             Dict with 'total' and 'kl_raw' losses.
         """
-        kl = -0.5 * (1 + logvar - mean.pow(2) - logvar.exp())
-        kl = kl.sum() / mean.shape[0]  # Sum over dims, mean over batch
+        if posterior is not None:
+            kl = posterior.kl()
+        else:
+            kl = -0.5 * (1 + logvar - mean.pow(2) - logvar.exp())
+            kl = kl.sum(dim=list(range(1, kl.ndim)))  # Sum over all non-batch dims
+
+        kl = kl.mean()  # Mean over batch
         total = self.weight * kl
 
         return {"total": total, "kl_raw": kl.detach()}

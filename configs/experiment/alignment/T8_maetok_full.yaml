@@ -1,0 +1,36 @@
+# @package _global_
+# @package _global_
+# T8 — MAETok (Continuous Tokenizer) Full Configuration
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2 # Fallback: HOG not implemented yet
+  - override /alignment: prediction
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    mask_ratio: 0.5    # Drop 50% of tokens during encoding
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  student_dim: 32      # Bottleneck output dim (MAETok aligns latent)
+  teacher_dim: 1024    # Projected target dim
+  projector_type: "vit_decoder"  # The auxiliary decoder!
+  distance_type: "cosine"
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2
+
+exp_name: "T8_maetok_full"
+notes: "MAETok-style: Token masking + Prediction via ViT Aux Decoder + modular bottleneck."

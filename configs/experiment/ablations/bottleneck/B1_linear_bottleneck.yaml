@@ -1,0 +1,38 @@
+# B1 — Bottleneck Ablation: Linear bottleneck (VTP original)
+# @package _global_
+# Compare linear vs MLP bottleneck impact on reconstruction + alignment
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: true
+    vit_feature_bottleneck: 32
+    bottleneck_type: "linear"     # VTP original
+  decoder:
+    z_channels: 32
+
+loss:
+  latent_norm:
+    enabled: true
+    weight: 0.01
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+
+training:
+  max_steps: 200000
+
+data:
+  batch_size: 256
+
+exp_name: "B1_linear_bottleneck"
+notes: "Bottleneck ablation: linear (VTP) — single nn.Linear projection"

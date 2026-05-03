@@ -1,0 +1,31 @@
+# @package _global_
+# T8 — Masking 75% AblationVision style)
+# Mask 75% of patch tokens during training → encoder must learn richer features
+# Side effect: ~4x compute reduction (fewer tokens to process)
+# Build on T5 (best multi-teacher); compare quality vs compute trade-off
+#
+# Token masking is already built into DinoVisionTransformer.forward_features()
+# via `mask_ratio` and `return_mask` kwargs. Training loop passes these to encoder.
+defaults:
+  - /model/encoder: vit_large
+  - /model/decoder: pixel_decoder_large
+  - /teacher: multi_dino_siglip
+  - /alignment: relational_kd
+  - /loss: standard
+  - /training: tokenizer_full
+  - _self_
+
+# Token masking is passed to encoder.forward_features(mask_ratio=0.75, return_mask=True)
+# in the training loop when training.token_masking.enabled is true
+training:
+  token_masking:
+    enabled: true
+    ratio: 0.75             # mask 75% of patch tokens
+
+loss:
+  latent_norm:
+    enabled: true
+    weight: 0.01
+
+exp_name: "T8_masking75"
+notes: "T5 + 75% token masking (OpenVision). Measures compute-quality trade-off."

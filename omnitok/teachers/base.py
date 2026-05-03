@@ -76,12 +76,39 @@ class BaseTeacher(ABC, nn.Module):
         """Patch size used by this teacher's backbone."""
         ...
 
+    @property
+    def input_mean(self) -> tuple[float, float, float]:
+        """Expected RGB mean for this teacher. Defaults to ImageNet mean."""
+        return (0.485, 0.456, 0.406)
+
+    @property
+    def input_std(self) -> tuple[float, float, float]:
+        """Expected RGB std for this teacher. Defaults to ImageNet std."""
+        return (0.229, 0.224, 0.225)
+
+    def preprocess(self, x: Tensor) -> Tensor:
+        """Condition input from [-1, 1] to teacher's expected normalization.
+
+        Args:
+            x: Images in [-1, 1] from standard OmniTok dataloader.
+
+        Returns:
+            Properly normalized images.
+        """
+        # Convert [-1, 1] -> [0, 1]
+        x = (x + 1.0) / 2.0
+
+        # Normalize to teacher's distribution
+        from torchvision.transforms.functional import normalize
+
+        return normalize(x, mean=list(self.input_mean), std=list(self.input_std))
+
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
         """Extract features (always in no_grad mode).
 
         Args:
-            x: Input images (B, 3, H, W).
+            x: Input images (B, 3, H, W) in [-1, 1].
 
         Returns:
             Normalized patch features (B, N, D).
@@ -89,7 +116,9 @@ class BaseTeacher(ABC, nn.Module):
         if self._model is None:
             self.setup()
             self._model.to(x.device)
-        return self._extract_features(x)
+
+        x_cond = self.preprocess(x)
+        return self._extract_features(x_cond)
 
     def train(self, mode: bool = True) -> "BaseTeacher":
         """Override train() — teachers are always in eval mode."""

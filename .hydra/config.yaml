@@ -1,0 +1,187 @@
+model:
+  encoder:
+    type: dinov3_bottleneck
+    img_size: 256
+    patch_size: 16
+    embed_dim: 768
+    depth: 12
+    num_heads: 12
+    ffn_layer: mlp
+    norm_layer: layernorm
+    use_abs_pos_embed: true
+    use_rope: false
+    drop_path_rate: 0.1
+    layerscale_init: 0.0001
+    pretrained: null
+  bottleneck:
+    type: linear
+    in_dim: 768
+    latent_dim: 32
+    dropout: 0.0
+  decoder:
+    type: pixel_decoder
+    in_chans: 256
+    out_chans: 3
+    upscale_factor: 16
+    embed_dim: 768
+    depth: 12
+    num_heads: 12
+    ffn_layer: mlp
+    norm_layer: layernorm
+teacher:
+  enabled: true
+  names:
+  - dinov2
+  dinov2:
+    model_name: dinov2_vitl14
+    feature_dim: 1024
+    freeze: true
+    use_patch_tokens: true
+    num_prefix_tokens: 1
+alignment:
+  type: cosine
+  weight: 1.0
+  projector: mlp3
+  projector_hidden_dim: 0
+loss:
+  reconstruction:
+    recon_type: l1
+    recon_weight: 1.0
+    perceptual_weight: 1.0
+  kl:
+    weight: 1.0e-06
+  gan:
+    enabled: false
+  gaussianity:
+    enabled: false
+    weight: 0.1
+  latent_norm:
+    enabled: false
+    weight: 0.01
+training:
+  max_steps: 200000
+  seed: 42
+  mixed_precision: bf16
+  grad_accum_steps: 1
+  grad_clip: 1.0
+  ema_decay: 0.9999
+  log_every: 100
+  save_every: 10000
+  use_wandb: true
+  metrics_window: 100
+  exp_name: omnitok
+  verbose: false
+  use_adaptive_weighting: false
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.05
+  betas:
+  - 0.9
+  - 0.95
+  lr_multipliers: {}
+scheduler:
+  type: cosine
+  warmup_steps: 5000
+  min_lr: 1.0e-06
+data:
+  root: /home/truongchau/Tan/AIOTok/data/imagenet10k/train
+  image_size: 256
+  batch_size: 256
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+experiment:
+  model:
+    encoder:
+      type: dinov3_bottleneck
+      img_size: 256
+      patch_size: 16
+      embed_dim: 1024
+      depth: 24
+      num_heads: 16
+      ffn_layer: mlp
+      norm_layer: layernorm
+      use_abs_pos_embed: true
+      use_rope: false
+      drop_path_rate: 0.1
+      pretrained: null
+    bottleneck:
+      type: linear
+      in_dim: 1024
+      latent_dim: 32
+      dropout: 0.0
+    decoder:
+      type: pixel_decoder
+      in_chans: 32
+      out_chans: 3
+      upscale_factor: 16
+      embed_dim: 768
+      depth: 12
+      num_heads: 12
+      ffn_layer: mlp
+      norm_layer: layernorm
+  teacher:
+    enabled: true
+    names:
+    - dinov2
+    dinov2:
+      model_name: dinov2_vitl14
+      feature_dim: 1024
+      freeze: true
+      use_patch_tokens: true
+      num_prefix_tokens: 1
+  alignment:
+    type: relational_kd
+    mode: relu_margin
+    weight: 1.0
+    distmat_margin: 0.2
+    distmat_weight: 1.0
+    cos_margin: 0.0
+    cos_weight: 1.0
+    projector: linear
+    projector_hidden_dim: 0
+    student_dim: 1024
+  loss:
+    reconstruction:
+      recon_type: l1
+      recon_weight: 1.0
+      perceptual_weight: 1.0
+    kl:
+      weight: 1.0e-06
+    gan:
+      enabled: false
+      disc_start: 0
+      disc_weight: 0.5
+    gaussianity:
+      enabled: false
+      weight: 0.1
+    latent_norm:
+      enabled: false
+      weight: 0.01
+  training:
+    max_steps: 10000
+    seed: 42
+    mixed_precision: bf16
+    grad_accum_steps: 1
+    grad_clip: 1.0
+    ema_decay: 0.9999
+    log_every: 100
+    save_every: 10000
+    use_wandb: true
+    metrics_window: 100
+    exp_name: omnitok
+    verbose: false
+    use_adaptive_weighting: false
+  data:
+    batch_size: 2
+    exp_name: T0_vtp_baseline
+  exp_name: T0_vtp_baseline
+  notes: 'VTP-style baseline: ViT-L + DINOv2 frozen + RelKD + GAN. Modular version.'
+exp_name: omnitok_default
+stage: tokenizer
+output:
+  dir: outputs/${exp_name}
+  log_dir: outputs/${exp_name}/logs
+  checkpoint_dir: outputs/${exp_name}/checkpoints
+  results_dir: outputs/${exp_name}/results

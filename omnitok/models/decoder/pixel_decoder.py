@@ -5,6 +5,8 @@ import torch
 import torch.nn.init
 from torch import Tensor, nn
 
+from omnitok.registry import DECODER_REGISTRY
+
 from ..encoder.vision_transformer import dtype_dict, ffn_layer_dict, init_weights_vit, norm_layer_dict
 from ..layers import RopePositionEmbedding, SelfAttentionBlock
 from ..layers._utils import named_apply
@@ -12,6 +14,30 @@ from ..layers._utils import named_apply
 logger = logging.getLogger("dinov3_pixel_decoder")
 
 
+def _icnr_init(weight: torch.Tensor, upscale_factor: int, std: float = 0.02) -> None:
+    """ICNR initialization for the conv preceding PixelShuffle.
+
+    Makes each upscale_factor² group of output channels identical, so that the
+    PixelShuffle at initialization is equivalent to nearest-neighbor upsampling.
+    This eliminates the checkerboard / ArUco-marker artifact that comes from
+    independent random initialization of each sub-pixel channel.
+
+    Args:
+        weight: Conv2d weight (out_channels, in_channels, kH, kW).
+        upscale_factor: PixelShuffle upscale factor r; out_channels must be divisible by r².
+        std: Std for the base kernel initialization.
+    """
+    out_channels, in_channels, kH, kW = weight.shape
+    n_unique = out_channels // (upscale_factor**2)
+    subkernel = torch.empty(n_unique, in_channels, kH, kW, device=weight.device, dtype=weight.dtype)
+    nn.init.trunc_normal_(subkernel, std=std)
+    # Tile each unique kernel r² times along dim=0
+    kernel = subkernel.repeat_interleave(upscale_factor**2, dim=0)
+    with torch.no_grad():
+        weight.copy_(kernel)
+
+
+@DECODER_REGISTRY.register("pixel_decoder")
 class DinoV3PixelDecoder(nn.Module):
     """DINOv3-based Pixel Decoder for image reconstruction.
 
@@ -60,9 +86,7 @@ class DinoV3PixelDecoder(nn.Module):
         self.num_heads = num_heads
 
         # 1. Input projection
-        self.proj_in = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=1, bias=proj_bias
-        )
+        self.proj_in = nn.Conv2d(in_chans, embed_dim, kernel_size=1, bias=proj_bias)
 
         # 2. RoPE
         self.rope_embed = RopePositionEmbedding(
@@ -107,29 +131,85 @@ class DinoV3PixelDecoder(nn.Module):
         # 4. Final norm
         self.norm = norm_layer_cls(embed_dim)
 
-        # 5. Output projection for Pixel Shuffle
-        self.upscale_factor = upscale_factor
-        proj_out_chans = out_chans * (self.upscale_factor**2)
-        self.proj_out = nn.Conv2d(
-            embed_dim, proj_out_chans, kernel_size=1, bias=proj_bias
-        )
+        # 5. Progressive upsampling: log2(upscale_factor) stages of PixelShuffle(2).
+        # Replaces single PixelShuffle(16) which requires learning 256 sub-pixel values at once.
+        # Each 2× stage only needs 4 sub-pixel values — much easier to train → no Lego blocks.
+        import math as _math
 
-        # 6. Pixel Shuffle layer
-        self.pixel_shuffle = nn.PixelShuffle(self.upscale_factor)
+        self.upscale_factor = upscale_factor
+        _n_up = int(round(_math.log2(upscale_factor)))
+        # Channel schedule: embed_dim → 256 → 128 → 64 → 32 (for 4 stages)
+        _chs = [embed_dim, 256, 128, 64, 32]
+        _chs = _chs[: _n_up + 1]
+
+        self.up_stages = nn.ModuleList()
+        for _i in range(_n_up):
+            _ic, _oc = _chs[_i], _chs[_i + 1]
+            self.up_stages.append(
+                nn.Sequential(
+                    # PixelShuffle(2) needs 4× input channels
+                    nn.Conv2d(_ic, _oc * 4, kernel_size=3, padding=1, bias=proj_bias),
+                    nn.PixelShuffle(2),
+                    nn.GELU(),
+                    # Cross-boundary refinement at this resolution
+                    nn.Conv2d(_oc, _oc, kernel_size=3, padding=1, bias=proj_bias),
+                    nn.GELU(),
+                    nn.Conv2d(_oc, _oc, kernel_size=3, padding=1, bias=proj_bias),
+                    nn.GELU(),
+                )
+            )
+
+        # Final projection to RGB — zero-init so output starts at tanh(0)=0 (mid-gray)
+        self.proj_rgb = nn.Conv2d(_chs[-1], out_chans, kernel_size=3, padding=1, bias=proj_bias)
+
+        # Final cross-patch blending: dilated convs, RF grows 3→7→15→31px.
+        # Crosses 16px patch boundary → blends NN-block artifacts.
+        # Zero-init last layer: starts as identity (no-op), learned incrementally.
+        self.final_refine = nn.Sequential(
+            nn.Conv2d(out_chans, 32, kernel_size=3, padding=1, dilation=1, bias=True),
+            nn.GELU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=2, dilation=2, bias=True),
+            nn.GELU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=4, dilation=4, bias=True),
+            nn.GELU(),
+            nn.Conv2d(32, out_chans, kernel_size=3, padding=8, dilation=8, bias=True),
+        )
 
         # Weight init
         self.init_weights()
 
     def init_weights(self):
-        # Initialize proj_in and proj_out with trunc_normal_
-        for m in [self.proj_in, self.proj_out]:
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.trunc_normal_(m.weight, std=0.02)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-        # Initialize transformer blocks
+        # Initialize transformer blocks first
         named_apply(init_weights_vit, self)
-        # RoPE does not need init here, it's handled internally
+
+        # proj_in: standard trunc_normal
+        torch.nn.init.trunc_normal_(self.proj_in.weight, std=0.02)
+        if self.proj_in.bias is not None:
+            nn.init.zeros_(self.proj_in.bias)
+
+        # Progressive upsampler: ICNR init on each PixelShuffle(2) conv (starts as 2× nearest-neighbor)
+        for stage in self.up_stages:
+            ps_conv = stage[0]  # Conv2d before PixelShuffle(2)
+            _icnr_init(ps_conv.weight, upscale_factor=2, std=0.02)
+            if ps_conv.bias is not None:
+                nn.init.zeros_(ps_conv.bias)
+            for mod in stage[2:]:  # refinement convs
+                if isinstance(mod, nn.Conv2d):
+                    nn.init.trunc_normal_(mod.weight, std=0.02)
+                    if mod.bias is not None:
+                        nn.init.zeros_(mod.bias)
+
+        # proj_rgb: standard trunc_normal so gradients can flow to the decoder!
+        # Do NOT zero-init the main branch, otherwise it blocks gradient flow at step 0.
+        nn.init.trunc_normal_(self.proj_rgb.weight, std=0.02)
+        if self.proj_rgb.bias is not None:
+            nn.init.zeros_(self.proj_rgb.bias)
+
+        # final_refine: zero-init last conv → starts as no-op, learned incrementally
+        if hasattr(self, "final_refine"):
+            nn.init.zeros_(self.final_refine[-1].weight)
+            if self.final_refine[-1].bias is not None:
+                nn.init.zeros_(self.final_refine[-1].bias)
 
     def forward(self, x: Tensor) -> Tensor:
         B, _, H, W = x.shape
@@ -153,19 +233,25 @@ class DinoV3PixelDecoder(nn.Module):
         # 6. Reshape back to image-like: (B, H*W, D) -> (B, D, H, W)
         x = x.transpose(1, 2).reshape(B, self.embed_dim, H, W)
 
-        # 7. Project out: (B, D, H, W) -> (B, C_out * up_factor^2, H, W)
-        x = self.proj_out(x)
+        # 7. Progressive upsampling: 16×16 → 32 → 64 → 128 → 256
+        for up in self.up_stages:
+            x = up(x)
 
-        # 8. Pixel Shuffle: (B, C_out * up_factor^2, H, W) -> (B, C_out, H*up_factor, W*up_factor)
-        x = self.pixel_shuffle(x)
+        # 8. Final RGB projection
+        x = self.proj_rgb(x)
 
-        return x
+        # 9. Cross-patch blending — dilated RF=31px blurs 16px patch boundaries
+        x = x + self.final_refine(x)
+
+        return torch.tanh(x)
+
+    def get_last_layer(self) -> nn.Parameter:
+        """Return last layer weight for adaptive gradient balancing (VA-VAE convention)."""
+        return self.final_refine[-1].weight
 
 
 # Factory functions for different model sizes
-def dinov3_pixel_decoder_small(
-    in_chans=256, out_chans=3, upscale_factor=4, **kwargs
-):
+def dinov3_pixel_decoder_small(in_chans=256, out_chans=3, upscale_factor=4, **kwargs):
     """Small DINOv3-based pixel decoder"""
     model = DinoV3PixelDecoder(
         in_chans=in_chans,
@@ -180,9 +266,7 @@ def dinov3_pixel_decoder_small(
     return model
 
 
-def dinov3_pixel_decoder_base(
-    in_chans=256, out_chans=3, upscale_factor=4, **kwargs
-):
+def dinov3_pixel_decoder_base(in_chans=256, out_chans=3, upscale_factor=4, **kwargs):
     """Base DINOv3-based pixel decoder"""
     model = DinoV3PixelDecoder(
         in_chans=in_chans,
@@ -197,9 +281,7 @@ def dinov3_pixel_decoder_base(
     return model
 
 
-def dinov3_pixel_decoder_large(
-    in_chans=256, out_chans=3, upscale_factor=4, **kwargs
-):
+def dinov3_pixel_decoder_large(in_chans=256, out_chans=3, upscale_factor=4, **kwargs):
     """Large DINOv3-based pixel decoder"""
     model = DinoV3PixelDecoder(
         in_chans=in_chans,

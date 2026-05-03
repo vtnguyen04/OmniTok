@@ -4,6 +4,7 @@
 # @package teacher
 enabled: true
 names: ["dinov2", "siglip", "sam"]
+common_dim: 1024
 phi_s_balancing: true
 dinov2:
   model_name: "dinov2_vitl14"
@@ -12,7 +13,7 @@ dinov2:
   use_patch_tokens: true
   num_prefix_tokens: 1
 siglip:
-  model_name: "ViT-SO400M-14-SigLIP-384"
+  model_name: "siglip_vit_so400m_14_384"
   feature_dim: 1152
   freeze: true
   use_patch_tokens: true

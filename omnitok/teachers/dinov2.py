@@ -38,10 +38,7 @@ class DINOv2Teacher(BaseTeacher):
     def __init__(self, model_name: str = "dinov2_vitl14", device: Optional[str] = None) -> None:
         super().__init__(model_name=model_name, device=device)
         if model_name not in _DINOV2_CONFIGS:
-            raise ValueError(
-                f"Unknown DINOv2 model: {model_name}. "
-                f"Available: {list(_DINOV2_CONFIGS.keys())}"
-            )
+            raise ValueError(f"Unknown DINOv2 model: {model_name}. Available: {list(_DINOV2_CONFIGS.keys())}")
         self._config = _DINOV2_CONFIGS[model_name]
 
     def _build_model(self) -> nn.Module:

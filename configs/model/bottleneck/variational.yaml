@@ -1,0 +1,6 @@
+# Variational Bottleneck (VAE style)
+# @package model.bottleneck
+type: "variational"
+in_dim: 768
+latent_dim: 64
+dropout: 0.0

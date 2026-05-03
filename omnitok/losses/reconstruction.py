@@ -44,11 +44,11 @@ class ReconstructionLoss(nn.Module):
         """Compute reconstruction loss.
 
         Args:
-            inputs: Original images (B, 3, H, W) in [0, 1].
-            reconstructions: Reconstructed images (B, 3, H, W) in [0, 1].
+            inputs: Original images (B, 3, H, W) in [-1, 1].
+            reconstructions: Reconstructed images (B, 3, H, W) in [-1, 1].
 
         Returns:
-            Dict with 'total', 'pixel', 'perceptual' loss values.
+            Dict with 'total', 'pixel', 'perceptual', 'channel_balance' loss values.
         """
         inputs = inputs.contiguous()
         reconstructions = reconstructions.contiguous()
@@ -61,16 +61,29 @@ class ReconstructionLoss(nn.Module):
         else:
             raise ValueError(f"Unsupported recon_type: {self.recon_type}")
 
-        # Perceptual loss
+        # Perceptual loss — LPIPS/VGG is luminance-biased (Y≈0.6G+0.3R+0.1B) and can
+        # drive the decoder to learn the G channel first, causing a green tint early in training.
         if self.lpips is not None and self.perceptual_weight > 0:
-            perceptual_loss = self.lpips(inputs, reconstructions).mean()
+            perceptual_loss = self.lpips(inputs, reconstructions.clamp(-1, 1)).mean()
         else:
             perceptual_loss = torch.zeros(1, device=inputs.device)
 
-        total = self.recon_weight * pixel_loss + self.perceptual_weight * perceptual_loss
+        # Channel balance: penalize per-image per-channel mean drift.
+        # Forces R, G, B to track the same mean as the target, preventing color bias.
+        # Weight is small (0.1×recon_weight) — just enough to kill the green drift.
+        recon_ch_mean = reconstructions.mean(dim=[2, 3])  # (B, 3)
+        input_ch_mean = inputs.mean(dim=[2, 3])  # (B, 3)
+        channel_balance = F.mse_loss(recon_ch_mean, input_ch_mean)
+
+        total = (
+            self.recon_weight * pixel_loss
+            + self.perceptual_weight * perceptual_loss
+            + 0.1 * self.recon_weight * channel_balance
+        )
 
         return {
             "total": total,
             "pixel": pixel_loss.detach(),
             "perceptual": perceptual_loss.detach(),
+            "channel_balance": channel_balance.detach(),
         }

@@ -183,9 +183,7 @@ class RopePositionEmbedding(nn.Module):
         device = self.periods.device
         dtype = self.dtype
         if self.base is not None:
-            periods = self.base ** (
-                2 * torch.arange(self.D_head // 4, device=device, dtype=dtype) / (self.D_head // 2)
-            )
+            periods = self.base ** (2 * torch.arange(self.D_head // 4, device=device, dtype=dtype) / (self.D_head // 2))
         else:
             base = self.max_period / self.min_period
             exponents = torch.linspace(0, 1, self.D_head // 4, device=device, dtype=dtype)
@@ -241,11 +239,11 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=float)
-    omega /= embed_dim / 2.
-    omega = 1. / 10000**omega
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000**omega
 
     pos = pos.reshape(-1)
-    out = np.einsum('m,d->md', pos, omega)
+    out = np.einsum("m,d->md", pos, omega)
 
     emb_sin = np.sin(out)
     emb_cos = np.cos(out)
@@ -256,20 +254,24 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 
 def interpolate_pos_embed(model, checkpoint_model):
     """Interpolate position embeddings for high-resolution."""
-    if 'pos_embed' in checkpoint_model:
-        pos_embed_checkpoint = checkpoint_model['pos_embed']
+    if "pos_embed" in checkpoint_model:
+        pos_embed_checkpoint = checkpoint_model["pos_embed"]
         embedding_size = pos_embed_checkpoint.shape[-1]
         num_patches = model.patch_embed.num_patches
         num_extra_tokens = model.pos_embed.shape[-2] - num_patches
         orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
-        new_size = int(num_patches ** 0.5)
+        new_size = int(num_patches**0.5)
         if orig_size != new_size:
-            print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
             extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
             pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
             pos_tokens = pos_tokens.reshape(-1, orig_size, orig_size, embedding_size).permute(0, 3, 1, 2)
             pos_tokens = torch.nn.functional.interpolate(
-                pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
+                pos_tokens, size=(new_size, new_size), mode="bicubic", align_corners=False
+            )
             pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
             new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
-            checkpoint_model['pos_embed'] = new_pos_embed
+            checkpoint_model["pos_embed"] = new_pos_embed

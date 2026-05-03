@@ -1,0 +1,10 @@
+# VICReg Alignment Loss
+# @package alignment
+type: "vicreg"
+weight: 1.0
+sim_weight: 25.0
+var_weight: 25.0
+cov_weight: 1.0
+projector: "mlp3"
+projector_hidden_dim: 2048
+student_dim: 1024

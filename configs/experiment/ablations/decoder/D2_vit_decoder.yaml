@@ -1,0 +1,35 @@
+# D2 — Decoder Ablation: ViT pixel decoder (VTP style)
+# @package _global_
+# Same setup as D1 but with ViT decoder — measures decoder type impact
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: true
+    vit_feature_bottleneck: 32
+
+loss:
+  latent_norm:
+    enabled: true
+    weight: 0.01
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+
+training:
+  max_steps: 200000
+
+data:
+  batch_size: 256
+
+exp_name: "D2_vit_decoder"
+notes: "Decoder ablation: ViT pixel decoder (VTP) + ViT encoder + cosine align"
