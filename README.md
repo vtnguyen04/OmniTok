@@ -11,9 +11,8 @@ OmniTok is a modular, high-performance research framework designed to systematic
 
 ## Features
 
-- **Modular Architecture**: Built on SOLID principles with a global `Registry` pattern. Easily swap encoders, decoders, bottlenecks, teachers, and alignment losses without touching the training loop.
+- **Modular Architecture**: Powered by a global `Registry` pattern. Easily swap encoders, decoders, bottlenecks, teachers, and alignment losses without touching the training loop.
 - **Multi-Teacher Support**: Native support for distilling from multiple frozen Vision Foundation models simultaneously (e.g., DINOv2 + SigLIP + SAM) using dynamically injected projector heads.
-- **Adaptive Gradient Balancing**: Implements dynamic loss weighting to automatically balance reconstruction and alignment gradients.
 - **Config-Driven Experiments**: Zero hardcoded hyperparameters. Everything is controlled via `Hydra` YAML composition, enabling massive ablations with a single command.
 - **End-to-End Pipeline**: Includes Stage 1 (Visual Tokenizer Training) and Stage 2 (Diffusion Transformer Training via LightningDiT/SiT).
 
@@ -26,10 +25,8 @@ OmniTok requires Python 3.10+ and PyTorch 2.0+. We recommend using `uv` or `pip`
 git clone https://github.com/vtnguyen04/OmniTok.git
 cd OmniTok
 
-# Install dependencies
-pip install -r requirements.txt
-# Or using uv:
-# uv pip install -r requirements.txt
+# Install dependencies using uv
+uv sync
 ```
 
 ## Usage
