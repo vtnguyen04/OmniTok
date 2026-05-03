@@ -75,20 +75,12 @@ omnitok/
 └── train.py             # Single entry point for all training tasks
 ```
 
-## Contributing
-
-Contributions are welcome! Please ensure you follow the project's strict GitFlow and development rules outlined in `Rules.md`:
-1. Never commit directly to `main` or `dev`. Always create a `feat/*` or `fix/*` branch.
-2. Run tests before committing: `pytest tests/ -x --tb=short`.
-3. Pass the linter: `ruff check omnitok/ --fix`.
-4. Submit pull requests with squash merges.
-
 ## Acknowledgments
 
 This framework is built upon and inspired by several foundational works:
-- [LightningDiT](https://github.com/Lightning-AI/lightning-dit) & [SiT](https://github.com/willisma/SiT)
-- [VTP](https://github.com/vtp-team/vtp)
-- [REPA-E](https://github.com/repa-e/repa-e)
+- LightningDiT & SiT
+- VTP
+- REPA-E
 
 ## License
 
