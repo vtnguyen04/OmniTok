@@ -189,8 +189,10 @@ class ExperimentManager:
 # Helpers
 # ────────────────────────────────────────────────────────────
 
+
 def _is_nan(v: float) -> bool:
     import math
+
     return math.isnan(v) or math.isinf(v)
 
 

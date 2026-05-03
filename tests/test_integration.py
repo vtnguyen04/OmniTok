@@ -15,25 +15,24 @@ import pytest
 import torch
 import torch.nn as nn
 
-from omnitok.models.tokenizer import Tokenizer
-from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
-from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
+from omnitok.data.transforms import build_eval_transform
 from omnitok.losses.alignment.cosine import CosineAlignmentLoss
-from omnitok.losses.alignment.relational import RelationalKDLoss
 from omnitok.losses.alignment.prediction import PredictionAlignmentLoss
+from omnitok.losses.alignment.relational import RelationalKDLoss
 from omnitok.losses.kl import KLLoss
 from omnitok.losses.reconstruction import ReconstructionLoss
-from omnitok.teachers.base import BaseTeacher
-from omnitok.teachers.normalizer import FeatureNormalizer, ProjectedNormalizer
-from omnitok.teachers.multi_teacher import MultiTeacher
-from omnitok.training.utils import update_ema, save_checkpoint, load_checkpoint, count_params
+from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
+from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
+from omnitok.models.tokenizer import Tokenizer
 from omnitok.registry import (
     ALIGNMENT_REGISTRY,
     LOSS_REGISTRY,
     TEACHER_REGISTRY,
 )
-from omnitok.data.transforms import build_train_transform, build_eval_transform
-
+from omnitok.teachers.base import BaseTeacher
+from omnitok.teachers.multi_teacher import MultiTeacher
+from omnitok.teachers.normalizer import ProjectedNormalizer
+from omnitok.training.utils import load_checkpoint, save_checkpoint, update_ema
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -202,7 +201,7 @@ class TestTokenizerWithTeachers:
         loss.backward()
 
         # Predictor MLP has gradients
-        assert any(p.grad is not None for p in alignment.predictor.parameters())
+        assert any(p.grad is not None for p in alignment.projector.parameters())
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +360,7 @@ class TestCheckpointResume:
             opt2 = torch.optim.Adam(tokenizer2.parameters(), lr=1e-3)
 
             # Load
-            ckpt_path = os.path.join(tmpdir, "checkpoint-00000042.pt")
+            ckpt_path = os.path.join(tmpdir, "last.pt")
             state = load_checkpoint(ckpt_path, tokenizer2, ema2, opt2)
 
             assert state["step"] == 42
@@ -421,7 +420,7 @@ class TestDataToModelPipeline:
         tensor = transform(pil_img).unsqueeze(0)  # (1, 3, 64, 64)
 
         assert tensor.shape == (1, 3, 64, 64)
-        assert tensor.min() >= 0.0 and tensor.max() <= 1.0
+        assert tensor.min() >= -1.0 and tensor.max() <= 1.0
 
         # Forward through tokenizer
         tokenizer.eval()

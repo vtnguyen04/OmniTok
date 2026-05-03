@@ -18,9 +18,21 @@ logger = logging.getLogger(__name__)
 
 # Map of model names to their dimensions and HF identifiers
 _DEPTH_CONFIGS = {
-    "depth_anything_v2_small": {"embed_dim": 384, "patch_size": 14, "hf_name": "depth-anything/Depth-Anything-V2-Small-hf"},
-    "depth_anything_v2_base": {"embed_dim": 768, "patch_size": 14, "hf_name": "depth-anything/Depth-Anything-V2-Base-hf"},
-    "depth_anything_v2_large": {"embed_dim": 1024, "patch_size": 14, "hf_name": "depth-anything/Depth-Anything-V2-Large-hf"},
+    "depth_anything_v2_small": {
+        "embed_dim": 384,
+        "patch_size": 14,
+        "hf_name": "depth-anything/Depth-Anything-V2-Small-hf",
+    },
+    "depth_anything_v2_base": {
+        "embed_dim": 768,
+        "patch_size": 14,
+        "hf_name": "depth-anything/Depth-Anything-V2-Base-hf",
+    },
+    "depth_anything_v2_large": {
+        "embed_dim": 1024,
+        "patch_size": 14,
+        "hf_name": "depth-anything/Depth-Anything-V2-Large-hf",
+    },
 }
 
 
@@ -39,10 +51,7 @@ class DepthAnythingTeacher(BaseTeacher):
     def __init__(self, model_name: str = "depth_anything_v2_base", device: Optional[str] = None) -> None:
         super().__init__(model_name=model_name, device=device)
         if model_name not in _DEPTH_CONFIGS:
-            raise ValueError(
-                f"Unknown Depth Anything model: {model_name}. "
-                f"Available: {list(_DEPTH_CONFIGS.keys())}"
-            )
+            raise ValueError(f"Unknown Depth Anything model: {model_name}. Available: {list(_DEPTH_CONFIGS.keys())}")
         self._config = _DEPTH_CONFIGS[model_name]
 
     def _build_model(self) -> nn.Module:
@@ -56,7 +65,7 @@ class DepthAnythingTeacher(BaseTeacher):
         """Extract patch features from the Depth Anything backbone.
 
         Args:
-            x: Input images (B, 3, H, W). 
+            x: Input images (B, 3, H, W).
 
         Returns:
             Patch features (B, N, D).

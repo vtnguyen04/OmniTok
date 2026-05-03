@@ -1,0 +1,4 @@
+# @package scheduler
+type: "cosine"
+warmup_steps: 5000
+min_lr: 1.0e-6

@@ -1,34 +1,38 @@
+# OmniTok — Primary Hydra Config
+# Usage:
+#   python train.py                                   # default (ViT-B, DINOv2, cosine)
+#   python train.py +experiment=T0_vtp_baseline       # run specific experiment
+#   python train.py model/encoder=vit_large           # override single group
+
 defaults:
   - model/encoder: vit_base
+  - model/bottleneck: linear
   - model/decoder: pixel_decoder_base
   - teacher: dinov2
   - alignment: cosine
   - loss: standard
-  - training: tokenizer_debug
+  - training: tokenizer_full
+  - optimizer: adamw
+  - scheduler: cosine
+  - data: imagenet
   - experiment: null
   - _self_
 
-# Common global variables that are not part of any config group can go here,
-# but everything else is managed by the config groups and experiment configs.
+# --- Experiment identity ---
+exp_name: "omnitok_default"
+stage: "tokenizer"  # tokenizer | dit | e2e
 
-# --- Data ---
-data:
-  root: "/path/to/imagenet/train"
-  image_size: 256
-  batch_size: 32
-  num_workers: 8
-  pin_memory: true
-  persistent_workers: false
+# --- Output ---
+output:
+  dir: "outputs/${exp_name}"
+  log_dir: "outputs/${exp_name}/logs"
+  checkpoint_dir: "outputs/${exp_name}/checkpoints"
+  results_dir: "outputs/${exp_name}/results"
 
-# --- Optimizer ---
-optimizer:
-  type: "adamw"
-  lr: 1e-4
-  weight_decay: 0.05
-  betas: [0.9, 0.95]
-
-# --- Scheduler ---
-scheduler:
-  type: "cosine"
-  warmup_steps: 5000
-  min_lr: 1e-6
+# --- Hydra settings ---
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: .
+    subdir: .

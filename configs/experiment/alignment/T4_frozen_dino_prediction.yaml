@@ -1,0 +1,33 @@
+# @package _global_
+# @package _global_
+# T4 — Frozen DINOv2-L + Prediction (MAETok style)
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: dinov2
+  - override /alignment: prediction
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 64     # aligns post-bottleneck (latent space)
+  teacher_dim: 1024   # DINOv2-L feature dim
+  projector_type: "mlp3" # REPA-E/MAETok style 3-layer MLP
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2
+
+exp_name: "T4_frozen_dino_prediction"
+notes: "Prediction paradigm (MAETok style): aux decoder from 64d latent. Compare vs T2/T3."

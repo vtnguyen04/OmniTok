@@ -1,0 +1,33 @@
+# Full Multi-teacher: DINO + SigLIP + SAM + Depth
+# @package teacher
+enabled: true
+names: ["dinov2", "siglip", "sam", "depth_anything"]
+common_dim: 1024
+phi_s_balancing: true
+
+dinov2:
+  model_name: "dinov2_vitl14"
+  feature_dim: 1024
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 1
+
+siglip:
+  model_name: "siglip_vit_so400m_14_384"
+  feature_dim: 1152
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0
+
+sam:
+  model_name: "sam_vit_b"
+  feature_dim: 256
+  freeze: true
+  pool_to: 16
+
+depth_anything:
+  model_name: "depth_anything_v2_small"
+  feature_dim: 384
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0

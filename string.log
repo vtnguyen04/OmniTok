@@ -1,0 +1,10 @@
+[2026-05-03 23:16:42,191][dinov3][INFO] - using base=100.0 for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using min_period=None for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using max_period=None for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using normalize_coords=separate for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using shift_coords=None for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using rescale_coords=None for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using jitter_coords=None for rope new
+[2026-05-03 23:16:42,191][dinov3][INFO] - using dtype=bf16 for rope new
+[2026-05-03 23:16:42,192][dinov3][INFO] - using mlp layer as FFN
+[2026-05-03 23:16:42,404][omnitok.models.tokenizer][INFO] - Auto-setting decoder in_chans=768 to match upstream component

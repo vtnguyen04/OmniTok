@@ -7,17 +7,17 @@ import pytest
 import torch
 import torch.nn as nn
 
-from omnitok.training.utils import (
-    update_ema,
-    requires_grad,
-    fix_seeds,
-    save_checkpoint,
-    load_checkpoint,
-    count_params,
-)
-from omnitok.models.tokenizer import Tokenizer
-from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
 from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
+from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
+from omnitok.models.tokenizer import Tokenizer
+from omnitok.training.utils import (
+    count_params,
+    fix_seeds,
+    load_checkpoint,
+    requires_grad,
+    save_checkpoint,
+    update_ema,
+)
 
 
 @pytest.fixture
@@ -134,7 +134,7 @@ class TestCheckpoint:
             opt2 = torch.optim.Adam(model2.parameters())
 
             state = load_checkpoint(
-                os.path.join(tmpdir, "checkpoint-00000100.pt"),
+                os.path.join(tmpdir, "last.pt"),
                 model2, optimizer=opt2,
             )
 

@@ -12,7 +12,7 @@ import json
 import logging
 import os
 from collections import defaultdict, deque
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +41,16 @@ class MetricsTracker:
         self._windows[name].append(value)
         self._history[name].append({"step": step, "value": value})
 
-    def update_dict(self, metrics: Dict[str, float], step: int) -> None:
+    def update_dict(self, metrics: Dict[str, Any], step: int) -> None:
         """Record multiple metrics at once.
 
         Args:
-            metrics: Dict of metric name → value.
+            metrics: Dict of metric name → value (float or Tensor).
             step: Current training step.
         """
         for name, value in metrics.items():
+            if hasattr(value, "item"):
+                value = value.item()
             if isinstance(value, (int, float)):
                 self.update(name, value, step)
 
@@ -137,11 +139,7 @@ class MetricsTracker:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
         # Collect all steps and metrics
-        all_steps = sorted(set(
-            entry["step"]
-            for entries in self._history.values()
-            for entry in entries
-        ))
+        all_steps = sorted(set(entry["step"] for entries in self._history.values() for entry in entries))
         metric_names = sorted(self._history.keys())
 
         # Build step → {metric: value} lookup

@@ -1,0 +1,73 @@
+# @package _global_
+# @package _global_
+# T_final — Full OmniTok Architecture
+defaults:
+  - override /model/encoder: vit_large
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_teacher
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T_final"
+notes: "Full OmniTok Architecture with 4 teachers (DINO, SigLIP, SAM, Depth). Modular version."
+
+# Override teacher to include all 4 explicitly as requested
+teacher:
+  enabled: true
+  names: ["dinov2", "siglip", "sam", "depth_anything"]
+  common_dim: 1024
+  phi_s_balancing: true
+  dinov2:
+    model_name: "dinov2_vitl14"
+    feature_dim: 1024
+    freeze: true
+    use_patch_tokens: true
+    num_prefix_tokens: 1
+  siglip:
+    model_name: "siglip_vit_so400m_14_384"
+    feature_dim: 1152
+    freeze: true
+    use_patch_tokens: true
+    num_prefix_tokens: 0
+  sam:
+    model_name: "sam_vit_b"
+    feature_dim: 256
+    freeze: true
+    use_patch_tokens: true
+    num_prefix_tokens: 0
+  depth_anything:
+    model_name: "depth_anything_v2_small"
+    feature_dim: 384
+    freeze: true
+    use_patch_tokens: true
+    num_prefix_tokens: 0
+
+model:
+  encoder:
+    mask_ratio: 0.5  # Token Masking
+  bottleneck:
+    in_dim: 1024
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 64
+  teacher_dim: 1024
+  projector_type: "vit_decoder"
+  distance_type: "mse"
+  embed_dim: 512
+
+loss:
+  gaussianity:
+    enabled: true
+    weight: 0.1
+
+training:
+  max_steps: 10000
+
+data:
+  batch_size: 2

@@ -7,12 +7,13 @@ predictor's output.
 Reference: continuous_tokenizer/modelling/tokenizer.py
 """
 
+from typing import Optional
+
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...models.decoder.aux_decoder import AuxiliaryViTDecoder
-from ...registry import ALIGNMENT_REGISTRY
-from .base import BaseAlignmentLoss
+from omnitok.losses.alignment.base import BaseAlignmentLoss
+from omnitok.registry import ALIGNMENT_REGISTRY, PROJECTOR_REGISTRY
 
 
 @ALIGNMENT_REGISTRY.register("prediction")
@@ -25,60 +26,71 @@ class PredictionAlignmentLoss(BaseAlignmentLoss):
     Args:
         student_dim: Student feature dimension.
         teacher_dim: Teacher feature dimension.
-        hidden_dim: Hidden dimension of the predictor MLP.
+        embed_dim: Hidden dimension of the predictor MLP.
+        depth: Number of layers in the predictor.
+        projector_type: Name of the projector/predictor to use.
     """
 
     def __init__(
         self,
-        student_dim: int = 64,
-        teacher_dim: int = 1024,
+        student_dim: int,
+        teacher_dim: int,
         embed_dim: int = 512,
-        depth: int = 4,
-        num_heads: int = 8,
-        num_patches: int = 256,
+        depth: int = 2,
+        projector_type: str = "mlp3",
+        distance_type: str = "mse",
+        **kwargs,
     ) -> None:
         super().__init__()
-        self.predictor = AuxiliaryViTDecoder(
-            latent_dim=student_dim,
+        self.distance_type = distance_type
+        self.projector = PROJECTOR_REGISTRY.build(
+            projector_type,
+            in_dim=student_dim,
             out_dim=teacher_dim,
             embed_dim=embed_dim,
             depth=depth,
-            num_heads=num_heads,
-            num_patches=num_patches,
+            **kwargs,
         )
+        if hasattr(self.projector, "forward"):
+            pass
+        else:
+            raise ValueError("PredictionAlignmentLoss requires a projector.")
 
-    def compute(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
-        """Compute prediction alignment loss.
+    def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        """Compute prediction loss.
 
         Args:
-            student_features: (B, N, D_student).
-            teacher_features: (B, N, D_teacher).
+            student_features: Encoded tokens (B, N_s, D_s).
+            teacher_features: Target tokens (B, N_t, D_t).
+            mask: Optional binary mask of kept tokens.
 
         Returns:
-            Scalar loss (cosine distance between predicted and teacher).
+            Scalar alignment loss.
         """
-        # Pass mask if available in kwargs
-        # But prediction.py currently only gets student_features and teacher_features
-        # If Tokenizer passes mask, it should be in kwargs or tuple. For now, assume None.
-        predicted = self.predictor(student_features)
-
-        # Ensure predicted has same shape as teacher
-        if predicted.shape[1] != teacher_features.shape[1]:
-            # Spatial interpolation or fallback
-            B, N_p, D_p = predicted.shape
-            B, N_t, D_t = teacher_features.shape
-            if N_p > N_t:
-                # E.g. 256 patches but teacher has 257 (cls token)
-                # Actually teacher usually has CLS token
-                pass
-
-        pred_norm = F.normalize(predicted, dim=-1)
-        teacher_norm = F.normalize(teacher_features.detach(), dim=-1)
+        # (B, N, D_t)
+        pred_features = self.projector(student_features, mask=mask)
+        target_features = teacher_features.detach()
 
         # Match lengths if teacher has cls token and student doesn't (or vice versa)
-        min_len = min(pred_norm.shape[1], teacher_norm.shape[1])
-        pred_norm = pred_norm[:, :min_len]
-        teacher_norm = teacher_norm[:, :min_len]
+        if pred_features.shape[1] != target_features.shape[1]:
+            # This logic should be handled by the projector or via pooling
+            # For now, just slice or pad
+            min_len = min(pred_features.shape[1], target_features.shape[1])
+            pred_features = pred_features[:, :min_len]
+            target_features = target_features[:, :min_len]
 
-        loss = -(pred_norm * teacher_norm).sum(dim=-1).mean()
+        if self.distance_type == "cosine":
+            # 1 - cosine similarity
+            pred_features = F.normalize(pred_features, dim=-1)
+            target_features = F.normalize(target_features, dim=-1)
+            loss = 1 - (pred_features * target_features).sum(dim=-1).mean()
+        elif self.distance_type == "l1":
+            loss = F.l1_loss(pred_features, target_features)
+        elif self.distance_type == "smooth_l1":
+            loss = F.smooth_l1_loss(pred_features, target_features)
+        elif self.distance_type == "mse":
+            loss = F.mse_loss(pred_features, target_features)
+        else:
+            raise ValueError(f"Unknown prediction alignment distance type: {self.distance_type}")
+
         return loss

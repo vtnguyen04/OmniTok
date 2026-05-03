@@ -76,9 +76,7 @@ class RFIDEvaluator:
         Returns:
             Dict with 'rfid' and 'n_images'.
         """
-        assert real_images.shape == recon_images.shape, (
-            f"Shape mismatch: {real_images.shape} vs {recon_images.shape}"
-        )
+        assert real_images.shape == recon_images.shape, f"Shape mismatch: {real_images.shape} vs {recon_images.shape}"
         n = real_images.shape[0]
 
         ctx = tempfile.TemporaryDirectory() if work_dir is None else _NullCtx(work_dir)
@@ -164,6 +162,7 @@ class RFIDEvaluator:
 
     def _compute_fid(self, real_dir: str, recon_dir: str) -> float:
         from cleanfid import fid
+
         return fid.compute_fid(
             real_dir,
             recon_dir,

@@ -5,12 +5,13 @@ Supports multiple modes:
 - 'relu_margin': VA-VAE (LightningDiT) style using ReLU(diff - margin).
 """
 
+from typing import Optional
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...registry import ALIGNMENT_REGISTRY
+from ...registry import ALIGNMENT_REGISTRY, PROJECTOR_REGISTRY
 from .base import BaseAlignmentLoss
 
 
@@ -52,17 +53,14 @@ class RelationalKDLoss(BaseAlignmentLoss):
         self.cos_margin = cos_margin
         self.cos_weight = cos_weight
 
-        if projector == "mlp":
-            hidden = projector_hidden_dim if projector_hidden_dim > 0 else teacher_dim
-            self.projector = nn.Sequential(
-                nn.Linear(student_dim, hidden),
-                nn.SiLU(),
-                nn.Linear(hidden, hidden),
-                nn.SiLU(),
-                nn.Linear(hidden, teacher_dim),
+        self.projector_type = projector
+        if projector and projector != "none":
+            self.projector = PROJECTOR_REGISTRY.build(
+                projector,
+                in_dim=student_dim,
+                out_dim=teacher_dim,
+                hidden_dim=projector_hidden_dim if projector_hidden_dim > 0 else 0,
             )
-        elif projector == "linear":
-            self.projector = nn.Linear(student_dim, teacher_dim, bias=False)
         else:
             self.projector = None
 
@@ -77,7 +75,7 @@ class RelationalKDLoss(BaseAlignmentLoss):
         else:
             raise ValueError(f"Unknown distance_type: {self.distance_type}")
 
-    def compute(self, student_features: Tensor, teacher_features: Tensor) -> Tensor:
+    def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         if self.projector is not None:
             z = self.projector(student_features)
         else:
@@ -91,7 +89,12 @@ class RelationalKDLoss(BaseAlignmentLoss):
             z_norm = F.normalize(z, dim=-1)
             aux_norm = F.normalize(aux_feature, dim=-1)
             cos_sim = (z_norm * aux_norm).sum(dim=-1)
-            vf_loss_2 = F.relu(1 - self.cos_margin - cos_sim).mean()
+
+            err = F.relu(1 - self.cos_margin - cos_sim)
+            if mask is not None:
+                vf_loss_2 = (err * mask).sum() / (mask.sum() + 1e-6)
+            else:
+                vf_loss_2 = err.mean()
 
         # Relational component
         vf_loss_1 = torch.tensor(0.0, device=z.device)
@@ -101,12 +104,24 @@ class RelationalKDLoss(BaseAlignmentLoss):
 
             if self.mode == "relu_margin":
                 diff = torch.abs(d_student - d_teacher)
-                vf_loss_1 = F.relu(diff - self.distmat_margin).mean()
+                if mask is not None:
+                    # Mask the distance matrix: (B, N, N)
+                    # A patch (i, j) is valid only if both i and j are kept
+                    mask_2d = mask.unsqueeze(1) * mask.unsqueeze(2)
+                    err = F.relu(diff - self.distmat_margin)
+                    vf_loss_1 = (err * mask_2d).sum() / (mask_2d.sum() + 1e-6)
+                else:
+                    vf_loss_1 = F.relu(diff - self.distmat_margin).mean()
             elif self.mode == "mse":
-                # Standard RKD: normalize distance matrices first
-                d_student = (d_student - d_student.mean()) / (d_student.std() + 1e-6)
-                d_teacher = (d_teacher - d_teacher.mean()) / (d_teacher.std() + 1e-6)
-                vf_loss_1 = F.mse_loss(d_student, d_teacher)
+                if mask is not None:
+                     mask_2d = mask.unsqueeze(1) * mask.unsqueeze(2)
+                     err = F.mse_loss(d_student, d_teacher, reduction="none")
+                     vf_loss_1 = (err * mask_2d).sum() / (mask_2d.sum() + 1e-6)
+                else:
+                    # Standard RKD: normalize distance matrices first
+                    d_student = (d_student - d_student.mean()) / (d_student.std() + 1e-6)
+                    d_teacher = (d_teacher - d_teacher.mean()) / (d_teacher.std() + 1e-6)
+                    vf_loss_1 = F.mse_loss(d_student, d_teacher)
             else:
                 raise ValueError(f"Unknown mode: {self.mode}")
 

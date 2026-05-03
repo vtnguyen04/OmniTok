@@ -4,8 +4,12 @@
 # @package alignment
 type: "prediction"
 weight: 1.0
+mode: "mse"
+projector: "vit_decoder"
+projector_hidden_dim: 0
 student_dim: 32          # post-bottleneck dim (must match encoder.vit_feature_bottleneck)
 teacher_dim: 1024        # DINOv2-L feature dim; overridden per-teacher at runtime
-hidden_dim: 512
-projector: "linear"
-projector_hidden_dim: 0
+embed_dim: 512
+depth: 4
+num_heads: 8
+num_patches: 256

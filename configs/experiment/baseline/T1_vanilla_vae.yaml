@@ -1,0 +1,44 @@
+# @package _global_
+# @package _global_
+# T1 — Vanilla VAE baseline (no alignment, no teacher)
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: variational
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: none
+  - override /alignment: none
+  - override /loss: standard
+  - override /training: tokenizer_debug
+  - override /data: debug
+  - _self_
+
+model:
+  bottleneck:
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  weight: 0.0
+
+loss:
+  reconstruction:
+    recon_type: l1
+    recon_weight: 1.0
+    perceptual_weight: 0.1
+  kl:
+    weight: 1.0e-6
+  gan:
+    enabled: true
+    disc_start: 0
+    disc_weight: 0.5
+    lecam_weight: 0.01
+
+training:
+  max_steps: 1250
+
+data:
+  batch_size: 16
+
+exp_name: "T1_vanilla_vae"
+notes: "Pure VAE: ViT-B + Variational Bottleneck (64d) + Reconstruction + GAN. No alignment."

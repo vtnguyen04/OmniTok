@@ -178,27 +178,27 @@ class Attention(nn.Module):
     """Multi-head attention module for CLIP-style transformers."""
 
     def __init__(
-            self,
-            dim: int,
-            num_heads: int = 8,
-            qkv_bias: bool = True,
-            scaled_cosine: bool = False,
-            scale_heads: bool = False,
-            logit_scale_max: float = math.log(1. / 0.01),
-            batch_first: bool = True,
-            attn_drop: float = 0.,
-            proj_drop: float = 0.
+        self,
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = True,
+        scaled_cosine: bool = False,
+        scale_heads: bool = False,
+        logit_scale_max: float = math.log(1.0 / 0.01),
+        batch_first: bool = True,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
     ):
         super().__init__()
         self.scaled_cosine = scaled_cosine
         self.scale_heads = scale_heads
-        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
+        assert dim % num_heads == 0, "dim should be divisible by num_heads"
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.logit_scale_max = logit_scale_max
         self.batch_first = batch_first
-        self.use_fsdpa = hasattr(nn.functional, 'scaled_dot_product_attention')
+        self.use_fsdpa = hasattr(nn.functional, "scaled_dot_product_attention")
 
         self.in_proj_weight = nn.Parameter(torch.randn((dim * 3, dim)) * self.scale)
         if qkv_bias:
@@ -246,9 +246,11 @@ class Attention(nn.Module):
         else:
             if self.use_fsdpa:
                 x = F.scaled_dot_product_attention(
-                    q, k, v,
+                    q,
+                    k,
+                    v,
                     attn_mask=attn_mask,
-                    dropout_p=self.attn_drop.p if self.training else 0.,
+                    dropout_p=self.attn_drop.p if self.training else 0.0,
                 )
             else:
                 q = q * self.scale
@@ -277,15 +279,16 @@ class AttentionalPooler(nn.Module):
     """Attentional pooling for multi-head attention."""
 
     def __init__(
-            self,
-            d_model: int,
-            context_dim: int,
-            n_head: int = 8,
-            n_queries: int = 256,
-            norm_layer: Callable = None,
+        self,
+        d_model: int,
+        context_dim: int,
+        n_head: int = 8,
+        n_queries: int = 256,
+        norm_layer: Callable = None,
     ):
         super().__init__()
         from .normalization import LayerNorm
+
         if norm_layer is None:
             norm_layer = LayerNorm
         self.query = nn.Parameter(torch.randn(n_queries, d_model))

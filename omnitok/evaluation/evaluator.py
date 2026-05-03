@@ -33,7 +33,7 @@ def _compute_psnr(real: Tensor, recon: Tensor) -> float:
     if mse == 0:
         return float("inf")
     # PSNR relative to the full range [0, 255] convention
-    return 20 * math.log10(255.0) - 10 * math.log10(mse * (127.5 ** 2))
+    return 20 * math.log10(255.0) - 10 * math.log10(mse * (127.5**2))
 
 
 class TokenizerEvaluator:
@@ -62,7 +62,7 @@ class TokenizerEvaluator:
         run_gaussianity: bool = True,
         rfid_max_images: Optional[int] = 5000,
         gaussianity_max_samples: int = 50000,
-        linear_probe_max_train: int = 50000,
+        linear_probe_epochs: int = 10,
         device: Optional[torch.device] = None,
     ) -> None:
         self.run_rfid = run_rfid
@@ -76,7 +76,7 @@ class TokenizerEvaluator:
         if run_gaussianity:
             self.gauss_eval = GaussianityEvaluator(max_samples=gaussianity_max_samples)
         if run_linear_probe:
-            self.probe_eval = LinearProbeEvaluator(max_train_samples=linear_probe_max_train)
+            self.probe_eval = LinearProbeEvaluator(epochs=linear_probe_epochs)
 
     @torch.no_grad()
     def evaluate(
@@ -104,9 +104,7 @@ class TokenizerEvaluator:
 
         # --- Collect real/recon pairs for rFID + PSNR ---
         if self.run_rfid or self.run_psnr or self.run_gaussianity:
-            real_imgs, recon_imgs, latents = self._collect_recon(
-                model, val_loader, n_batches
-            )
+            real_imgs, recon_imgs, latents = self._collect_recon(model, val_loader, n_batches)
 
             if self.run_psnr:
                 psnr = _compute_psnr(real_imgs, recon_imgs)

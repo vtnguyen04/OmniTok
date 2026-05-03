@@ -1,0 +1,20 @@
+# Mini dataset training — 5000 steps, all losses from step 1
+# @package training
+output_dir: "outputs/mini_aligned"
+max_steps: 5000
+seed: 42
+mixed_precision: "bf16"
+grad_accum_steps: 2
+grad_clip: 0.1
+ema_decay: 0.999   # τ=1/(1-0.999)=1000 steps → EMA converges within 5000-step mini run
+log_every: 10
+save_every: 100
+use_wandb: true
+metrics_window: 100
+verbose: false
+
+# Very short freeze (50 steps) just to let AdamW moments warm up safely.
+# After 50 steps, we unfreeze the backbone but use a VERY LOW learning rate (0.01x)
+# to prevent catastrophic forgetting of the DINOv2 weights caused by random projector gradients.
+freeze_encoder_backbone: true
+unfreeze_at_step: 1000

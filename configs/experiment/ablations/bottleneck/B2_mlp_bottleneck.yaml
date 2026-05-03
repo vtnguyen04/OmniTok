@@ -1,0 +1,38 @@
+# B2 — Bottleneck Ablation: MLP bottleneck (AIOTok CompactLatentAdapter)
+# @package _global_
+# LayerNorm → Linear(4C) → GELU → Linear(C) — non-linear compression
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: mlp
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: true
+    vit_feature_bottleneck: 32
+    bottleneck_type: "mlp"        # AIOTok CompactLatentAdapter
+  decoder:
+    z_channels: 32
+
+loss:
+  latent_norm:
+    enabled: true
+    weight: 0.01
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+
+training:
+  max_steps: 200000
+
+data:
+  batch_size: 256
+
+exp_name: "B2_mlp_bottleneck"
+notes: "Bottleneck ablation: MLP (AIOTok) — LN→Linear→GELU→Linear non-linear compression"

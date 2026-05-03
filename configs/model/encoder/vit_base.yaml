@@ -1,6 +1,6 @@
 # ViT-Base encoder — default training scale
-# embed_dim=768, depth=12, heads=12 → ~86M params
-# @package encoder
+# @package model.encoder
+type: "dinov3_bottleneck"
 img_size: 256
 patch_size: 16
 embed_dim: 768
@@ -8,5 +8,8 @@ depth: 12
 num_heads: 12
 ffn_layer: "mlp"
 norm_layer: "layernorm"
+use_abs_pos_embed: true
+use_rope: false
 drop_path_rate: 0.1
-vit_feature_bottleneck: 32   # post-bottleneck latent dim (= latent_dim for DiT)
+layerscale_init: 1.0e-4
+pretrained: null

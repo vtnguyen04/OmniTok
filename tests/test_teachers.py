@@ -1,13 +1,11 @@
 """Tests for teacher modules — normalizer, multi-teacher, registry."""
 
-import pytest
 import torch
 
 from omnitok.registry import TEACHER_REGISTRY
 from omnitok.teachers.base import BaseTeacher
-from omnitok.teachers.normalizer import FeatureNormalizer, ProjectedNormalizer
 from omnitok.teachers.multi_teacher import MultiTeacher
-
+from omnitok.teachers.normalizer import FeatureNormalizer, ProjectedNormalizer
 
 # --- Fake teacher for testing (no model download) ---
 
@@ -142,6 +140,10 @@ class TestTeacherRegistry:
     def test_depth_anything_registered(self):
         """Depth Anything teacher is registered."""
         assert "depth_anything" in TEACHER_REGISTRY
+
+    def test_hog_registered(self):
+        """HOG teacher is registered."""
+        assert "hog" in TEACHER_REGISTRY
 
     def test_available_teachers(self):
         """At least 4 teachers registered."""

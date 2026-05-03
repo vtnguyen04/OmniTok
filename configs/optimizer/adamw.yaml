@@ -1,0 +1,6 @@
+# @package optimizer
+type: "adamw"
+lr: 1.0e-4
+weight_decay: 0.05
+betas: [0.9, 0.95]
+lr_multipliers: {}
