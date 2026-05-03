@@ -2,7 +2,7 @@
 # @package _global_
 # T0 — Reproduce VTP-L baseline
 defaults:
-  - override /model/encoder: vit_base
+  - override /model/encoder: vit_large
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
   - override /teacher: dinov2
