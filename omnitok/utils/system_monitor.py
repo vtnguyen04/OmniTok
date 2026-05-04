@@ -1,10 +1,11 @@
-import os
-import time
-import subprocess
-import datetime
-import sys
-import wandb
 import argparse
+import datetime
+import os
+import subprocess
+import sys
+import time
+
+import wandb
 
 LOG_FILE = "server_crash_debug.log"
 
@@ -19,7 +20,7 @@ def get_ram_stats():
             "ram_avail_mb": mem_avail // 1024,
             "ram_used_mb": (mem_total - mem_avail) // 1024
         }
-    except:
+    except Exception:
         return {}
 
 def get_gpu_stats():
@@ -28,7 +29,7 @@ def get_gpu_stats():
             ["nvidia-smi", "--query-gpu=index,temperature.gpu,power.draw,power.limit,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"],
             stderr=subprocess.STDOUT
         ).decode('utf-8').strip().split('\n')
-        
+
         gpu_stats = {}
         logs = []
         for line in res:
@@ -39,9 +40,9 @@ def get_gpu_stats():
             gpu_stats[f"gpu_{idx}/power_limit"] = float(limit)
             gpu_stats[f"gpu_{idx}/mem_used"] = float(mem_used)
             gpu_stats[f"gpu_{idx}/utilization"] = float(util)
-            
+
             logs.append(f"GPU {idx}: {temp}C | Pwr {pwr}W | Mem {mem_used}MB | Util {util}%")
-            
+
         return gpu_stats, " | ".join(logs)
     except Exception as e:
         return {}, f"GPU Error: {str(e)}"
@@ -52,7 +53,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Bắt đầu theo dõi hệ thống. Đang ghi log cục bộ vào: {os.path.abspath(LOG_FILE)}")
-    
+
     # Tích hợp vào chung 1 run với train.py
     run = wandb.init(
         project="omnitok",
@@ -62,46 +63,46 @@ def main():
         job_type="hardware_monitor",
         tags=["system_crash_monitor"] if not args.run_id else None
     )
-    
+
     print(f"✅ Đã kết nối WandB: {run.url}")
     print("Vui lòng giữ script này chạy ngầm (hoặc tab tmux khác) khi train.")
-    
+
     with open(LOG_FILE, "a") as f:
         f.write(f"\n{'='*80}\nNEW MONITORING SESSION: {datetime.datetime.now()} | WandB: {run.name}\n{'='*80}\n")
         f.flush()
         os.fsync(f.fileno())
-    
+
     step = 0
     while True:
         try:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ram_stats = get_ram_stats()
             gpu_stats, gpu_log_str = get_gpu_stats()
-            
+
             # Gộp chung metrics để log lên wandb
             metrics = {"step": step}
             metrics.update(ram_stats)
             metrics.update(gpu_stats)
-            
+
             # 1. LOG LÊN WANDB
             if metrics:
                 wandb.log(metrics, step=step)
-            
+
             # 2. LOG XUỐNG DISK CỤC BỘ VÀ FSYNC NGAY LẬP TỨC
             # Lý do: WandB đẩy data qua mạng (mất ~100ms) và dùng buffer ngầm.
             # Nếu sập nguồn (chỉ mất 5ms), WandB CÓ THỂ KHÔNG KỊP GỬI gói tin cuối.
             # SSD ghi và fsync chỉ mất <1ms. Nên Disk luôn là bằng chứng sống cuối cùng.
             ram_log_str = f"RAM: {ram_stats.get('ram_avail_mb', 0)}MB Avail"
             log_line = f"[{now}] {ram_log_str} || {gpu_log_str}\n"
-            
+
             with open(LOG_FILE, "a") as f:
                 f.write(log_line)
                 f.flush()
                 os.fsync(f.fileno())
-                
+
             time.sleep(1)  # Monitor với tần suất cực cao (1 giây)
             step += 1
-            
+
         except KeyboardInterrupt:
             print("\nĐã dừng monitor.")
             wandb.finish()

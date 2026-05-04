@@ -46,6 +46,7 @@ class TokenizerTrainer:
         understanding_weight: float = 1.0,
         scheduler: Optional[Any] = None,
         disc_optimizer: Optional[torch.optim.Optimizer] = None,
+        disc_scheduler: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.config = config or {}
@@ -90,6 +91,7 @@ class TokenizerTrainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.disc_optimizer = disc_optimizer
+        self.disc_scheduler = disc_scheduler
         self.train_dataloader = train_dataloader
 
         self.omni_logger = OmniTokLogger(
@@ -199,6 +201,8 @@ class TokenizerTrainer:
                     )
                     if self.scheduler is not None:
                         self.scheduler.step()
+                    if self.disc_scheduler is not None:
+                        self.disc_scheduler.step()
 
                     self.global_step += 1
 
@@ -300,6 +304,21 @@ class TokenizerTrainer:
                 step=self.global_step,
             )
 
+    def _calculate_adaptive_weight(self, loss_base: torch.Tensor, loss_target: torch.Tensor, last_layer: nn.Parameter) -> torch.Tensor:
+        """Calculate adaptive weight to balance gradients (VA-VAE / VQGAN style)."""
+        grad_base_tuple = torch.autograd.grad(loss_base, last_layer, retain_graph=True, allow_unused=True)
+        grad_base = grad_base_tuple[0]
+        norm_base = torch.norm(grad_base) if grad_base is not None else torch.tensor(1.0, device=loss_base.device)
+
+        grad_target_tuple = torch.autograd.grad(loss_target, last_layer, retain_graph=True, allow_unused=True)
+        grad_target = grad_target_tuple[0]
+
+        if grad_target is not None:
+            norm_target = torch.norm(grad_target)
+            weight = norm_base / (norm_target + 1e-4)
+            return torch.clamp(weight, 0.0, 1e4).detach()
+        return torch.tensor(1.0, device=loss_base.device)
+
     def _generator_step(self, images: torch.Tensor, texts: Optional[list] = None, labels: Optional[torch.Tensor] = None) -> Dict[str, float]:
         with self.accelerator.accumulate(self.tokenizer):
             mask_ratio = self.config.get("mask_ratio", 0.0)
@@ -339,26 +358,11 @@ class TokenizerTrainer:
                     last_layer = self.tokenizer.get_last_shared_layer()
 
                 if last_layer is not None and last_layer.requires_grad and self.use_adaptive_weighting:
-                    # 1. Grad of Rec (which includes L1, LPIPS, GAN, Gauss)
-                    grad_rec_tuple = torch.autograd.grad(total_loss, last_layer, retain_graph=True, allow_unused=True)
-                    grad_rec = grad_rec_tuple[0]
-                    norm_rec = torch.norm(grad_rec) if grad_rec is not None else torch.tensor(1.0, device=total_loss.device)
-
-                    # 2. Grad of Align
-                    grad_align_tuple = torch.autograd.grad(align_total, last_layer, retain_graph=True, allow_unused=True)
-                    grad_align = grad_align_tuple[0]
-
-                    if grad_align is not None:
-                        norm_align = torch.norm(grad_align)
-                        # 3. Calculate Adaptive Weight
-                        adaptive_weight = norm_rec / (norm_align + 1e-4)
-                        # Clamp to prevent explosion (max 5.0 to prevent overpowering L1)
-                        adaptive_weight = torch.clamp(adaptive_weight, 0.0, 5.0).detach()
-                    else:
-                        # If align_total does not flow through last_layer, fallback to 1.0
-                        adaptive_weight = 1.0
+                    adaptive_weight = self._calculate_adaptive_weight(total_loss, align_total, last_layer)
+                    # Clamp to prevent explosion (max 5.0 to prevent overpowering L1)
+                    adaptive_weight = torch.clamp(adaptive_weight, 0.0, 5.0)
                 else:
-                    adaptive_weight = 1.0
+                    adaptive_weight = torch.tensor(1.0, device=total_loss.device)
 
                 # Apply adaptive weight and base weight
                 final_align_weight = adaptive_weight * self.alignment_weight
@@ -407,8 +411,22 @@ class TokenizerTrainer:
 
             if self.gan_loss is not None:
                 g_result = self.gan_loss.generator_loss(recon, self.global_step)
-                total_loss = total_loss + g_result["total"]
+
+                # Adaptive GAN Weight (VQGAN style)
+                last_layer = None
+                if hasattr(self.tokenizer, "get_last_shared_layer"):
+                    last_layer = self.tokenizer.get_last_shared_layer()
+
+                gan_loss_val = g_result["total"]
+                if last_layer is not None and last_layer.requires_grad and self.use_adaptive_weighting:
+                    d_weight = self._calculate_adaptive_weight(recon_result["total"], gan_loss_val, last_layer)
+                else:
+                    d_weight = torch.tensor(1.0, device=total_loss.device)
+
+                # final_gan_weight = d_weight (because g_result["total"] already includes self.gan_loss.disc_weight)
+                total_loss = total_loss + d_weight * gan_loss_val
                 loss_dict["loss/gan_g"] = g_result["gan"].item()
+                loss_dict["meta/adaptive_gan_weight"] = d_weight.item()
 
             loss_dict["loss/total"] = total_loss.item()
 

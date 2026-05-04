@@ -40,11 +40,23 @@ class Tokenizer(nn.Module):
         Returns:
             Spatial latent features (B, C, h, w) where h=H/patch_size.
         """
+        # Pre-processing
+        if hasattr(self.encoder, "input_mean") and hasattr(self.encoder, "input_std"):
+            import torchvision.transforms.functional as TF
+            x_0_1 = (x + 1.0) / 2.0
+            x_norm = TF.normalize(
+                x_0_1,
+                mean=list(self.encoder.input_mean),
+                std=list(self.encoder.input_std)
+            )
+        else:
+            x_norm = x
+
         # This handles internal bottleneck (VTP style)
         if hasattr(self.encoder, "encode"):
-             z = self.encoder.encode(x)
+             z = self.encoder.encode(x_norm)
         else:
-             z = self.encoder(x)
+             z = self.encoder(x_norm)
 
         # This handles external bottleneck (modular style)
         if self.bottleneck is not None:

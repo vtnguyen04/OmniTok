@@ -351,9 +351,22 @@ def _build_dataloader(cfg: DictConfig, log: OmniTokLogger):
     batch_size = cfg.data.batch_size
     num_workers = cfg.data.get("num_workers", 8)
 
-    dataset = ImageFolderDataset(root=cfg.data.root, image_size=cfg.data.image_size, split="train")
+    # Get data directory from CLI args or config
+    import sys
+    data_dir = cfg.data.get("train_dir", None)
+    if not data_dir:
+        log.error("No data dir: set data.train_dir in config")
+        sys.exit(1)
 
-    log.info(f"Dataset: {len(dataset)} images from {cfg.data.root}")
+    dataset = ImageFolderDataset(root=data_dir, image_size=cfg.data.image_size, split="train")
+
+    if cfg.data.get("val_dir", None):
+        val_dir = cfg.data.get("val_dir")
+        val_dataset = ImageFolderDataset(root=val_dir, image_size=cfg.data.image_size, split="val")
+    else:
+        val_dataset = None
+
+    log.info(f"Dataset: {len(dataset)} images from {data_dir}")
     log.info(f"Batch: {batch_size} × {num_workers} workers")
 
     return DataLoader(
@@ -477,12 +490,14 @@ def main(cfg: DictConfig) -> None:
     scheduler = _build_scheduler(cfg, optimizer, log)
 
     disc_optimizer = None
+    disc_scheduler = None
     if gan_loss is not None:
         disc_optimizer = torch.optim.Adam(
             gan_loss.discriminator.parameters(),
             lr=cfg.optimizer.lr,
             betas=(0.5, 0.999),
         )
+        disc_scheduler = _build_scheduler(cfg, disc_optimizer, log)
 
     train_dataloader = _build_dataloader(cfg, log)
 
@@ -514,6 +529,7 @@ def main(cfg: DictConfig) -> None:
         optimizer=optimizer,
         scheduler=scheduler,
         disc_optimizer=disc_optimizer,
+        disc_scheduler=disc_scheduler,
         config=train_config,
     )
 
@@ -524,11 +540,16 @@ def main(cfg: DictConfig) -> None:
 
     log.success("All components built successfully")
 
-    # Resume if last.pt exists
-    last_ckpt = os.path.join(output_dir, "checkpoints", "last.pt")
-    if os.path.isfile(last_ckpt):
-        log.info(f"Resuming from {last_ckpt}", phase="checkpoint")
-        trainer.resume(last_ckpt)
+    # Resume logic
+    resume_from = cfg.training.get("resume_from", None)
+    if resume_from and os.path.isfile(resume_from):
+        log.info(f"Resuming from specified checkpoint: {resume_from}", phase="checkpoint")
+        trainer.resume(resume_from)
+    else:
+        last_ckpt = os.path.join(output_dir, "checkpoints", "last.pt")
+        if os.path.isfile(last_ckpt):
+            log.info(f"Resuming from {last_ckpt}", phase="checkpoint")
+            trainer.resume(last_ckpt)
 
     # Spawn background system monitor on rank 0
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:

@@ -1,5 +1,6 @@
 # @package data
-root: "/home/truongchau/Tan/AIOTok/data/imagenet10k/train"
+train_dir: "/home/truongchau/Tan/AIOTok/data/imagenet10k/train"
+val_dir: "/home/truongchau/Tan/AIOTok/data/imagenet10k/val"
 image_size: 256
 batch_size: 256
 num_workers: 8

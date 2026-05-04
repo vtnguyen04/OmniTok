@@ -48,7 +48,8 @@ class FakeTokenizer(nn.Module):
         return torch.tanh(self.dec(z))
 
     def forward(self, x):
-        return self.decode(self.encode(x))
+        z = self.encode(x)
+        return {"latent": z, "reconstruction": self.decode(z)}
 
 
 def make_fake_dataloader(n=32, img_size=32, n_classes=10, with_labels=True):
