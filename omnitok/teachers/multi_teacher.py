@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from .base import BaseTeacher
-from .normalizer import FeatureNormalizer, ProjectedNormalizer
+from .normalizer import FeatureNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -32,35 +32,33 @@ class MultiTeacher(nn.Module):
     def __init__(
         self,
         teachers: Dict[str, BaseTeacher],
-        common_dim: Optional[int] = None,
         normalize: bool = True,
+        phi_s_balancing: bool = True,
+        loss_weights: Optional[Dict[str, float]] = None,
     ) -> None:
         super().__init__()
         self.teacher_names = list(teachers.keys())
         self.teachers = nn.ModuleDict(teachers)
-        self.common_dim = common_dim
+        self.phi_s_balancing = phi_s_balancing
+        self.loss_weights = loss_weights or {name: 1.0 for name in self.teacher_names}
 
-        # Build normalizers/projectors per teacher
-        self.projectors = nn.ModuleDict()
+        # Teachers ONLY extract features. The student encoder must have multiple
+        # projectors to map into these native spaces. We only keep the normalizer
+        # to ensure the teacher features have zero mean and unit variance.
+        self.normalizers = nn.ModuleDict()
         for name, teacher in teachers.items():
-            if common_dim is not None and teacher.feature_dim != common_dim:
-                self.projectors[name] = ProjectedNormalizer(
-                    in_dim=teacher.feature_dim,
-                    out_dim=common_dim,
-                )
-            elif normalize:
-                self.projectors[name] = FeatureNormalizer(teacher.feature_dim)
+            if normalize:
+                self.normalizers[name] = FeatureNormalizer(teacher.feature_dim)
             else:
-                self.projectors[name] = nn.Identity()
+                self.normalizers[name] = nn.Identity()
 
-        # PHI-S learnable log-variance for adaptive loss weighting
-        self.log_vars = nn.ParameterDict({name: nn.Parameter(torch.zeros(1)) for name in teachers})
+        if self.phi_s_balancing:
+            # PHI-S learnable log-variance for adaptive loss weighting
+            self.log_vars = nn.ParameterDict({name: nn.Parameter(torch.zeros(1)) for name in teachers})
 
     @property
     def feature_dim(self) -> int:
-        """Get the output feature dimension of the teachers."""
-        if self.common_dim is not None:
-            return self.common_dim
+        """Get the output feature dimension of the teachers (returns fallback first dim)."""
         return next(iter(self.teachers.values())).feature_dim
 
     @torch.no_grad()
@@ -76,29 +74,51 @@ class MultiTeacher(nn.Module):
         features = {}
         for name in self.teacher_names:
             raw = self.teachers[name](x)
-            features[name] = self.projectors[name](raw)
+            features[name] = self.normalizers[name](raw)
+        return features
+
+    @torch.no_grad()
+    def extract_selected(
+        self,
+        x: Tensor,
+        selected_indices: Tensor,
+    ) -> Dict[str, Tensor]:
+        """Extract features ONLY from selected teachers.
+
+        Only forwards the unique set of teachers selected by the router
+        for the current batch. Saves compute when top_k < num_teachers.
+
+        Args:
+            x: Input images (B, 3, H, W).
+            selected_indices: (B, top_k) indices of selected teachers.
+
+        Returns:
+            Dict mapping selected teacher names to their normalized features.
+        """
+        unique_indices = selected_indices.unique().tolist()
+        features = {}
+        for idx in unique_indices:
+            name = self.teacher_names[idx]
+            raw = self.teachers[name](x)
+            features[name] = self.normalizers[name](raw)
         return features
 
     def get_loss_weights(self) -> Dict[str, Tensor]:
-        """Compute adaptive loss weights using PHI-S (uncertainty weighting).
-
-        Returns:
-            Dict mapping teacher names to scalar weights.
-            Weight_i = 1 / (2 * exp(log_var_i))
-        """
+        """Compute adaptive loss weights using PHI-S (uncertainty weighting) or default to config weights."""
         weights = {}
         for name in self.teacher_names:
-            precision = torch.exp(-self.log_vars[name])
-            weights[name] = 0.5 * precision
+            if self.phi_s_balancing:
+                precision = torch.exp(-self.log_vars[name])
+                weights[name] = 0.5 * precision
+            else:
+                weights[name] = torch.tensor(self.loss_weights[name], device=next(self.parameters()).device)
         return weights
 
     def get_regularization(self) -> Tensor:
-        """PHI-S regularization term: sum of 0.5 * log_var_i.
-
-        Returns:
-            Scalar regularization loss.
-        """
-        return sum(0.5 * self.log_vars[name] for name in self.teacher_names)
+        """PHI-S regularization term: sum of 0.5 * log_var_i, or 0.0."""
+        if self.phi_s_balancing:
+            return sum(0.5 * self.log_vars[name] for name in self.teacher_names)
+        return torch.tensor(0.0, device=next(self.parameters()).device)
 
     @property
     def num_teachers(self) -> int:
