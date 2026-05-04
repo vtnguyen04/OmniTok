@@ -1,0 +1,60 @@
+# @package _global_
+# T7: Multi-Teacher + Linear Projector (UNE-predicted optimal, ~25K params)
+# UNE theory says linear projection is sufficient because latent spaces
+# are linear projections of the same underlying Gaussian.
+# Per-teacher simple linear: student_dim → teacher_dim.
+#
+# Research Question: Does UNE theory hold in practice?
+# If Linear ≈ MLP/MoE → confirms UNE + massive param savings.
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T7_linear_projector"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  projector: linear              # UNE-predicted: 1 linear layer, no bias
+  cos_weight: 1.0
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 0
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 16
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "T7: Linear Projector (~25K params). UNE theory predicts this is optimal. Tests UNE hypothesis: are VF latent spaces just linear projections of the same Gaussian?"
+tags: ["omnitok", "tokenizer", "projector_ablation", "linear_projector", "une"]

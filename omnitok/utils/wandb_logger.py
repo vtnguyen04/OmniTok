@@ -36,6 +36,7 @@ class OmniTokWandBLogger:
         name: str = "experiment",
         config: Optional[Dict[str, Any]] = None,
         tags: Optional[List[str]] = None,
+        notes: Optional[str] = None,
         enabled: bool = True,
         run_id: Optional[str] = None,
     ) -> None:
@@ -56,11 +57,9 @@ class OmniTokWandBLogger:
             self._run = wandb.init(
                 project=project,
                 name=name,
-                id=_id,
-                resume="allow",
-                config=config or {},
                 tags=tags or [],
-                reinit=True,
+                notes=notes,
+                settings=wandb.Settings(init_timeout=120),
             )
             logger.info(f"WandB run initialized: {self._run.url}")
         except ImportError:
@@ -132,6 +131,44 @@ class OmniTokWandBLogger:
         if not self.enabled or self._run is None or not os.path.exists(path):
             return
         self._wandb.log({key: self._wandb.Image(path, caption=caption)}, step=step)
+
+    def log_router_distribution(
+        self,
+        teacher_names: list,
+        usage: list,
+        weights: list,
+        step: int,
+    ) -> None:
+        """Log teacher routing distribution as a WandB bar chart.
+
+        Creates a grouped bar chart showing usage fraction and average
+        gating weight per teacher for monitoring router health.
+
+        Args:
+            teacher_names: List of teacher names.
+            usage: Per-teacher usage fractions (sum = 1.0).
+            weights: Per-teacher average gating weights.
+            step: Current training step.
+        """
+        if not self.enabled or self._run is None:
+            return
+
+        # Bar chart: teacher usage distribution
+        data = [[name, u, w] for name, u, w in zip(teacher_names, usage, weights)]
+        table = self._wandb.Table(data=data, columns=["Teacher", "Usage %", "Avg Weight"])
+        self._wandb.log(
+            {
+                "router/usage_chart": self._wandb.plot.bar(
+                    table, "Teacher", "Usage %",
+                    title=f"Teacher Usage (step {step})"
+                ),
+                "router/weight_chart": self._wandb.plot.bar(
+                    table, "Teacher", "Avg Weight",
+                    title=f"Teacher Gating Weights (step {step})"
+                ),
+            },
+            step=step,
+        )
 
     # ──────────────────────────────────────────
     # Histogram logging

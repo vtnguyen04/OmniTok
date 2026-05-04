@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - baseline/T0_vtp_baseline
+  - _self_
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 0 # Bật ngay lập tức vì chúng ta đang resume từ step > 5000
+    disc_weight: 0.5
+    lecam_weight: 0.05 # Tránh Discriminator quá ảo tưởng sức mạnh
+
+alignment:
+  adaptive_weighting: true # BẬT LẠI ĐỂ CẢ GAN VÀ ALIGN ĐỀU ĐƯỢC CÂN BẰNG TỰ ĐỘNG
+
+training:
+  max_steps: 20000
+  save_every: 100 # Đã thêm dòng này để bạn xem được ảnh mỗi 100 step
+  resume_from: "outputs/baseline_base_20k_v2/checkpoints/last.pt" # Kế thừa chặng đường cũ
+
+exp_name: "baseline_base_20k_v2_resumed_with_gan"
+notes: "Tiếp tục train từ checkpoint của v2, bật cứng GAN và tắt adaptive weighting."

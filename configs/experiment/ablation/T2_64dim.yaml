@@ -1,0 +1,24 @@
+# @package _global_
+# Ablation: 64-dim bottleneck
+defaults:
+  - /experiment/baseline/T0_vtp_baseline
+  - _self_
+
+model:
+  bottleneck:
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  resume_from: null
+  save_every: 100
+
+loss:
+  gan:
+    disc_start: 3000
+
+exp_name: ablation_64dim_20k_v2
+notes: "Ablation study: Tăng bottleneck từ 32 lên 64-dim để kiểm tra mức độ khôi phục high-frequency details (PSNR/sharpness) trong 20k steps. thêm disc_start lên 3000"

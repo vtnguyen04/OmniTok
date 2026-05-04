@@ -1,0 +1,13 @@
+# MoE Cross-Attention Bottleneck — Perceiver-style with Mixture of Experts
+# @package model.bottleneck
+type: "moe_crossattn"
+in_dim: 768
+latent_dim: 64
+num_queries: 256      # Same as number of patch tokens (16x16)
+num_blocks: 2         # Number of read-write blocks (L×)
+num_experts: 4        # Number of MoE experts
+top_k: 2              # Active experts per token
+num_heads: 8          # Self-attention heads
+head_dim: 64          # Head dimension for MoE cross-attention
+num_heads_per_expert: 4
+ffn_ratio: 4.0

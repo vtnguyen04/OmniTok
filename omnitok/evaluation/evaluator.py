@@ -78,7 +78,6 @@ class TokenizerEvaluator:
         if run_linear_probe:
             self.probe_eval = LinearProbeEvaluator(epochs=linear_probe_epochs)
 
-    @torch.no_grad()
     def evaluate(
         self,
         model: nn.Module,
@@ -124,16 +123,22 @@ class TokenizerEvaluator:
             if train_loader is None:
                 logger.warning("LinearProbe requested but train_loader is None — skipping.")
             else:
+                # Override epochs and epoch_length if n_batches is provided
+                if n_batches is not None:
+                    self.probe_eval.epoch_length = min(self.probe_eval.epoch_length, n_batches)
+                    self.probe_eval.epochs = min(self.probe_eval.epochs, 1)
+
                 probe_metrics = self.probe_eval.compute_from_model(
                     encoder=_EncoderWrapper(model),
                     train_loader=train_loader,
-                    val_loader=val_loader,
+                    val_loader=val_loader,  # We don't slice val_loader here, but linear probe evaluation could be long.
                     device=self.device,
                 )
                 metrics.update(probe_metrics)
 
         return metrics
 
+    @torch.no_grad()
     def _collect_recon(
         self,
         model: nn.Module,
@@ -149,8 +154,10 @@ class TokenizerEvaluator:
                 break
 
             images = batch[0].to(self.device)
-            z = model.encode(images)
-            recon = model.decode(z)
+            # Use the exact same forward pass as training
+            outputs = model(images)
+            z = outputs["latent"]
+            recon = outputs["reconstruction"]
 
             # Flatten spatial latent for Gaussianity: (B, C, h, w) → (B*h*w, C)
             if z.ndim == 4:
