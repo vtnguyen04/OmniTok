@@ -77,7 +77,7 @@ class RelationalKDLoss(BaseAlignmentLoss):
 
     def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         if self.projector is not None:
-            z = self.projector(student_features)
+            z = self.projector(student_features, mask=mask, teacher_cond=teacher_features)
         else:
             z = student_features
 

@@ -125,6 +125,7 @@ def load_checkpoint(
     model: nn.Module,
     ema_model: Optional[nn.Module] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    resume_weights_only: bool = False,
 ) -> dict:
     """Load checkpoint and restore state.
 
@@ -148,7 +149,7 @@ def load_checkpoint(
         ema_model.load_state_dict(state["ema_model"], strict=False)
         logger.info("Loaded EMA model")
 
-    if optimizer is not None and "optimizer" in state:
+    if optimizer is not None and "optimizer" in state and not resume_weights_only:
         try:
             optimizer.load_state_dict(state["optimizer"])
         except ValueError as e:

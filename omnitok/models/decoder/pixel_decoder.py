@@ -247,7 +247,7 @@ class DinoV3PixelDecoder(nn.Module):
 
     def get_last_layer(self) -> nn.Parameter:
         """Return last layer weight for adaptive gradient balancing (VA-VAE convention)."""
-        return self.final_refine[-1].weight
+        return self.proj_rgb.weight
 
 
 # Factory functions for different model sizes

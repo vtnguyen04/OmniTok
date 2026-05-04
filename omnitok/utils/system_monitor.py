@@ -5,8 +5,6 @@ import subprocess
 import sys
 import time
 
-import wandb
-
 LOG_FILE = "server_crash_debug.log"
 
 def get_ram_stats():
@@ -50,25 +48,26 @@ def get_gpu_stats():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_id", type=str, default=None, help="WandB run ID to attach to")
-    args = parser.parse_args()
+    _ = parser.parse_args()
 
     print(f"Bắt đầu theo dõi hệ thống. Đang ghi log cục bộ vào: {os.path.abspath(LOG_FILE)}")
 
     # Tích hợp vào chung 1 run với train.py
-    run = wandb.init(
-        project="omnitok",
-        id=args.run_id,
-        resume="allow" if args.run_id else None,
-        name=f"SysMon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}" if not args.run_id else None,
-        job_type="hardware_monitor",
-        tags=["system_crash_monitor"] if not args.run_id else None
-    )
+    # run = wandb.init(
+    #     project="omnitok",
+    #     id=args.run_id,
+    #     resume="allow" if args.run_id else None,
+    #     name=f"SysMon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}" if not args.run_id else None,
+    #     job_type="hardware_monitor",
+    #     tags=["system_crash_monitor"] if not args.run_id else None,
+    #     settings=wandb.Settings(init_timeout=300),
+    # )
 
-    print(f"✅ Đã kết nối WandB: {run.url}")
+    # print(f"✅ Đã kết nối WandB: {run.url}")
     print("Vui lòng giữ script này chạy ngầm (hoặc tab tmux khác) khi train.")
 
     with open(LOG_FILE, "a") as f:
-        f.write(f"\n{'='*80}\nNEW MONITORING SESSION: {datetime.datetime.now()} | WandB: {run.name}\n{'='*80}\n")
+        f.write(f"\n{'='*80}\nNEW MONITORING SESSION: {datetime.datetime.now()}\n{'='*80}\n")
         f.flush()
         os.fsync(f.fileno())
 
@@ -84,9 +83,10 @@ def main():
             metrics.update(ram_stats)
             metrics.update(gpu_stats)
 
-            # 1. LOG LÊN WANDB
+            # 1. LOG LÊN WANDB (Đã bị tắt)
             if metrics:
-                wandb.log(metrics, step=step)
+                pass
+                # wandb.log(metrics, step=step)
 
             # 2. LOG XUỐNG DISK CỤC BỘ VÀ FSYNC NGAY LẬP TỨC
             # Lý do: WandB đẩy data qua mạng (mất ~100ms) và dùng buffer ngầm.
@@ -105,7 +105,7 @@ def main():
 
         except KeyboardInterrupt:
             print("\nĐã dừng monitor.")
-            wandb.finish()
+            # wandb.finish()
             sys.exit(0)
         except Exception as e:
             err_line = f"[{datetime.datetime.now()}] SCRIPT ERROR: {str(e)}\n"

@@ -10,6 +10,7 @@ All projectors are registered in PROJECTOR_REGISTRY.
 
 from typing import Optional
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 
@@ -29,11 +30,13 @@ class BaseProjector(nn.Module):
         self.in_dim = in_dim
         self.out_dim = out_dim
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         """Project student features toward teacher space.
 
         Args:
             x: Student features (..., in_dim).
+            mask: Optional token mask.
+            kwargs: Additional arguments like teacher_cond.
 
         Returns:
             Projected features (..., out_dim).
@@ -62,7 +65,7 @@ class LinearProjector(BaseProjector):
         self.proj = nn.Linear(in_dim, out_dim, bias=False)
         nn.init.trunc_normal_(self.proj.weight, std=0.02)
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         return self.proj(x)
 
 
@@ -93,7 +96,7 @@ class MLP2Projector(BaseProjector):
             if isinstance(m, nn.Linear):
                 nn.init.trunc_normal_(m.weight, std=0.02)
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         return self.proj(x)
 
 
@@ -129,7 +132,7 @@ class MLP3Projector(BaseProjector):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         return self.proj(x)
 
 
@@ -142,7 +145,7 @@ class IdentityProjector(BaseProjector):
         if in_dim != out_dim:
             raise ValueError(f"IdentityProjector requires in_dim == out_dim, got {in_dim} != {out_dim}")
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         return x
 
 
@@ -167,9 +170,87 @@ def build_projector(
         return PROJECTOR_REGISTRY.build("identity", in_dim=in_dim, out_dim=out_dim)
     if proj_type == "linear":
         return PROJECTOR_REGISTRY.build("linear", in_dim=in_dim, out_dim=out_dim)
-    if proj_type in ("mlp2", "mlp3"):
+    if proj_type in ("mlp2", "mlp3", "moe"):
         return PROJECTOR_REGISTRY.build(proj_type, in_dim=in_dim, out_dim=out_dim, hidden_dim=hidden_dim)
     raise ValueError(f"Unknown projector '{proj_type}'. Available: {PROJECTOR_REGISTRY.available()}")
+
+
+@PROJECTOR_REGISTRY.register("moe")
+class MoEProjector(BaseProjector):
+    """MoE Alignment Projector for filtering multi-modal teacher gradients.
+
+    Acts as a massive 'gradient router' during training. Uses teacher conditioning
+    to dynamically route student features into specific MLP experts before projecting
+    them to the teacher's feature space.
+
+    Args:
+        in_dim: Student feature dimension.
+        out_dim: Teacher feature dimension.
+        hidden_dim: Hidden layer dimension for experts.
+        num_experts: Number of routing experts.
+        top_k: Number of experts to activate per token.
+        teacher_dim: Dimension of teacher conditioning signal.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        hidden_dim: int = 0,
+        num_experts: int = 4,
+        top_k: int = 2,
+        teacher_dim: int = 0,
+        **kwargs
+    ) -> None:
+        super().__init__(in_dim, out_dim)
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.teacher_dim = teacher_dim
+
+        hidden = hidden_dim or max(in_dim, out_dim)
+
+        from omnitok.models.bottleneck.moe_crossattn import MoEGating
+        self.gating = MoEGating(in_dim, num_experts, top_k, teacher_dim)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(in_dim, hidden, bias=True),
+                nn.SiLU(),
+                nn.Linear(hidden, hidden, bias=True),
+                nn.SiLU(),
+                nn.Linear(hidden, out_dim, bias=True),
+            ) for _ in range(num_experts)
+        ])
+
+        self.norm = nn.LayerNorm(in_dim)
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for expert in self.experts:
+            for m in expert:
+                if isinstance(m, nn.Linear):
+                    nn.init.trunc_normal_(m.weight, std=0.02)
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
+        teacher_cond = kwargs.get("teacher_cond", None)
+        x_normed = self.norm(x)
+
+        weights, indices = self.gating(x_normed, teacher_cond)
+
+        # Dense expert execution
+        expert_outputs = torch.stack(
+            [expert(x_normed) for expert in self.experts], dim=2
+        )  # (B, N, num_experts, out_dim)
+
+        out_d = self.out_dim
+        indices_expanded = indices.unsqueeze(-1).expand(-1, -1, -1, out_d)
+        selected = torch.gather(expert_outputs, dim=2, index=indices_expanded)
+        output = (selected * weights.unsqueeze(-1)).sum(dim=2)
+
+        return output
+
+
 @PROJECTOR_REGISTRY.register("vit_decoder")
 class ViTDecoderProjector(BaseProjector):
     """ViT-based projector head.
@@ -207,7 +288,7 @@ class ViTDecoderProjector(BaseProjector):
             num_patches=num_patches,
         )
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         return self.decoder(x, mask=mask)
 
 
@@ -246,7 +327,7 @@ class PixelShuffleProjector(BaseProjector):
             nn.Linear(hidden, out_dim, bias=True)
         )
 
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         # x: (B, N, C)
         B, N, C = x.size()
         H = W = int(N ** 0.5)

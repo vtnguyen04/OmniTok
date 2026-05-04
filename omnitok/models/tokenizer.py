@@ -227,6 +227,22 @@ class Tokenizer(nn.Module):
         params = [p for p in self.encoder.parameters() if p.requires_grad]
         return params[-1] if params else None
 
+    def get_decoder_last_layer(self) -> nn.Parameter | None:
+        """Return the weight of the last layer of the decoder.
+
+        Used for adaptive weighting of GAN loss vs Reconstruction loss,
+        since both operate on the decoded image.
+        """
+        if hasattr(self.decoder, "get_last_layer"):
+            return self.decoder.get_last_layer()
+        if hasattr(self.decoder, "proj_rgb") and hasattr(self.decoder.proj_rgb, "weight"):
+            return self.decoder.proj_rgb.weight
+        if hasattr(self.decoder, "conv_out") and hasattr(self.decoder.conv_out, "weight"):
+            return self.decoder.conv_out.weight
+
+        params = [p for p in self.decoder.parameters() if p.requires_grad]
+        return params[-1] if params else None
+
 
 
 

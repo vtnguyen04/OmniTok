@@ -18,3 +18,8 @@ gaussianity:
 latent_norm:
   enabled: false           # AIOTok-style: soft constraint mean(z)≈0, std(z)≈1
   weight: 0.01             # Gentle — does not crush semantic content
+
+alignment_weights:
+  dinov2: 1.0
+  siglip2: 1.0
+  sam: 1.0

@@ -64,7 +64,7 @@ class CosineAlignmentLoss(BaseAlignmentLoss):
             Scalar loss (lower = better alignment).
         """
         if self.projector is not None:
-            student_features = self.projector(student_features)
+            student_features = self.projector(student_features, mask=mask, teacher_cond=teacher_features)
 
         student_norm = F.normalize(student_features, dim=-1)
         teacher_norm = F.normalize(teacher_features.detach(), dim=-1)

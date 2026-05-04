@@ -18,14 +18,14 @@ model:
     in_dim: 768
     latent_dim: 64
     num_queries: 256
-    num_blocks: 2
-    num_experts: 4
-    top_k: 2
+    num_blocks: 1          # Reduce from 2 → 1 (halves params)
+    num_experts: 4          # Reduce from 4 → 2 (halves MoE params)
+    top_k: 1                # Only 1 active expert per token
     teacher_dims:
-      dinov2: 1024
-      siglip: 1152
+      dinov2: 384
+      siglip2: 768
       sam: 256
-    teacher_cond_dim: 128
+    teacher_cond_dim: 64    # Reduce from 128 → 64
   decoder:
     in_chans: 64
 
@@ -36,17 +36,28 @@ alignment:
 loss:
   gan:
     enabled: true
-    disc_start: 3000
+    disc_start: 5000
     disc_weight: 0.5
+    n_layers: 3          # Increase discriminator capacity from default 3
 
 training:
   max_steps: 20000
   use_adaptive_weighting: true  # use PHI-S balancing
   resume_from: null
+  log_every: 10
   save_every: 100
+  grad_accum_steps: 1    # Effective batch size 16
+
+scheduler:
+  warmup_steps: 500       # Fast warmup — MoE needs signal early
+
+data:
+  batch_size: 16
 
 optimizer:
+  lr: 3.0e-4              # Higher LR — MoE bottleneck (90M params) needs stronger updates
   lr_multipliers:
+    "encoder.feature_bottleneck": 1.0  # Force MoE bottleneck to use full LR 3e-4
     "encoder": 0.1
     "decoder": 1.0
 

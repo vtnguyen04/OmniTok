@@ -42,24 +42,39 @@ class PlotGenerator:
 
     # Distinct, colorblind-friendly palette — one color per metric
     _METRIC_COLORS: Dict[str, str] = {
-        "loss/total": "#E74C3C",  # red
-        "loss/recon_pixel": "#2980B9",  # blue
+        "loss/total": "#E74C3C",        # red
+        "loss/recon_pixel": "#2980B9",   # blue
         "loss/recon_perceptual": "#8E44AD",  # purple
-        "loss/channel_balance": "#E67E22",  # orange
+        "loss/channel_balance": "#E67E22",   # orange
         "loss/align_dinov2": "#27AE60",  # green
-        "loss/align_total": "#16A085",  # teal
-        "loss/gan_g": "#C0392B",  # dark red
-        "loss/disc": "#7F8C8D",  # gray
-        "loss/gaussianity": "#F1C40F",  # yellow
+        "loss/align_siglip2": "#3498DB", # bright blue
+        "loss/align_sam": "#E67E22",     # orange
+        "loss/align_total": "#16A085",   # teal
+        "loss/gan_g": "#C0392B",         # dark red
+        "loss/disc": "#7F8C8D",          # gray
+        "loss/gaussianity": "#F1C40F",   # yellow
+        "loss/latent_norm": "#9B59B6",   # violet
+        "train/lr": "#1ABC9C",           # turquoise
+        "meta/adaptive_weight": "#D35400",  # burnt orange
     }
 
-    # Logical groupings → one subplot each
-    _PANEL_GROUPS: Dict[str, List[str]] = {
-        "Total Loss": ["loss/total"],
-        "Reconstruction": ["loss/recon_pixel", "loss/recon_perceptual", "loss/channel_balance"],
-        "Alignment": ["loss/align_dinov2", "loss/align_total"],
-        "GAN / Regularization": ["loss/gan_g", "loss/disc", "loss/gaussianity"],
-    }
+    @classmethod
+    def _build_panel_groups(cls, existing_keys: set) -> Dict[str, List[str]]:
+        """Dynamically build panel groups based on actual metric keys."""
+        panels: Dict[str, List[str]] = {
+            "Total Loss": ["loss/total"],
+            "Reconstruction": ["loss/recon_pixel", "loss/recon_perceptual", "loss/channel_balance"],
+        }
+        # Auto-detect all alignment keys (works for any teacher combination)
+        align_keys = sorted([k for k in existing_keys if k.startswith("loss/align_")])
+        if align_keys:
+            panels["Alignment (per-teacher)"] = [k for k in align_keys if k != "loss/align_total"]
+            panels["Alignment (total)"] = ["loss/align_total"]
+
+        panels["GAN / Regularization"] = ["loss/gan_g", "loss/disc", "loss/gaussianity", "loss/latent_norm"]
+        panels["Learning Rate"] = ["train/lr"]
+        panels["Meta"] = ["meta/adaptive_weight"]
+        return panels
 
     def plot_loss_curves(
         self,
@@ -86,15 +101,16 @@ class PlotGenerator:
 
         existing = {k for k, v in history.items() if v}
 
-        # Build active panels (skip panels with no data)
+        # Build active panels dynamically (auto-detects teacher alignment keys)
+        all_panels = self._build_panel_groups(existing)
         panels: Dict[str, List[str]] = {}
-        for panel_name, metrics in self._PANEL_GROUPS.items():
+        for panel_name, metrics in all_panels.items():
             active = [m for m in metrics if m in existing]
             if active:
                 panels[panel_name] = active
 
         # Catch-all: metrics not assigned to any panel
-        assigned = {m for ms in self._PANEL_GROUPS.values() for m in ms}
+        assigned = {m for ms in all_panels.values() for m in ms}
         extras = [m for m in sorted(existing) if m not in assigned]
         if extras:
             panels["Other"] = extras
@@ -179,6 +195,47 @@ class PlotGenerator:
         plt.close(fig)
 
         logger.info(f"Saved loss curves → {path}")
+
+        # ── Save individual per-panel plots ──
+        import numpy as np
+        import pandas as pd
+
+        indiv_dir = os.path.join(self.output_dir, "individual")
+        os.makedirs(indiv_dir, exist_ok=True)
+        for panel_name, metrics in panels.items():
+            fig_i, ax_i = plt.subplots(figsize=(10, 4), facecolor=BG)
+            ax_i.set_facecolor(PANEL_BG)
+            ax_i.grid(True, color=GRID_COLOR, linewidth=0.7, zorder=0)
+            ax_i.spines[:].set_color(GRID_COLOR)
+
+            for metric in metrics:
+                entries = history.get(metric, [])
+                if not entries:
+                    continue
+                steps = np.array([e["step"] for e in entries])
+                vals = np.array([e["value"] for e in entries])
+                color = self._METRIC_COLORS.get(metric, "#555555")
+                ax_i.plot(steps, vals, color=color, alpha=0.15, linewidth=0.9, zorder=1)
+                ser = pd.Series(vals)
+                sm = ser.rolling(window=smooth_window, min_periods=1).mean().values
+                label = metric.replace("loss/", "").replace("train/", "").replace("meta/", "")
+                ax_i.plot(steps, sm, color=color, linewidth=2.2, label=label, zorder=2)
+                ax_i.annotate(f"{sm[-1]:.4f}", xy=(steps[-1], sm[-1]),
+                              xytext=(6, 0), textcoords="offset points",
+                              fontsize=9, color=color, va="center", fontweight="bold")
+
+            ax_i.set_title(panel_name, fontsize=13, fontweight="bold", color=TEXT_COLOR, loc="left")
+            ax_i.set_xlabel("Step", fontsize=10, color=TEXT_COLOR)
+            ax_i.legend(loc="upper right", fontsize=9, framealpha=0.9, edgecolor=GRID_COLOR, fancybox=True)
+            ax_i.axhline(0, color=GRID_COLOR, linewidth=1.0, zorder=0)
+            fig_i.tight_layout()
+
+            safe_name = panel_name.lower().replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
+            indiv_path = os.path.join(indiv_dir, f"{safe_name}.{fmt}")
+            fig_i.savefig(indiv_path, bbox_inches="tight", facecolor=BG)
+            plt.close(fig_i)
+
+        logger.info(f"Saved {len(panels)} individual plots → {indiv_dir}")
         return path
 
     def plot_ablation_bar(

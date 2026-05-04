@@ -75,9 +75,8 @@ class GANLoss(nn.Module):
 
         logits_fake = self.discriminator(reconstructions)
         gan_loss = -torch.mean(logits_fake)
-        total = self.disc_weight * gan_loss
 
-        return {"total": total, "gan": gan_loss.detach()}
+        return {"total": gan_loss, "gan": gan_loss.detach()}
 
     def discriminator_loss(self, inputs: Tensor, reconstructions: Tensor, global_step: int) -> dict[str, Tensor]:
         """Discriminator loss: distinguish real from fake.

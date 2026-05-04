@@ -129,7 +129,7 @@ class TokenizerEvaluator:
                     self.probe_eval.epochs = min(self.probe_eval.epochs, 1)
 
                 probe_metrics = self.probe_eval.compute_from_model(
-                    encoder=_EncoderWrapper(model),
+                    encoder=model.encoder,
                     train_loader=train_loader,
                     val_loader=val_loader,  # We don't slice val_loader here, but linear probe evaluation could be long.
                     device=self.device,

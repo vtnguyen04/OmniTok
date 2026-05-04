@@ -158,7 +158,7 @@ def generate_plots(exp_dir: str, output_dir: str, log: OmniTokLogger) -> None:
         with open(metrics_path) as f:
             metrics_data = json.load(f)
         if "history" in metrics_data and metrics_data["history"]:
-            path = plots.plot_loss_curves(metrics_data["history"], title="Training Loss", fmt="pdf")
+            path = plots.plot_loss_curves(metrics_data["history"], title="Training Loss", fmt="png")
             log.info(f"Loss curves → {path}")
         else:
             log.warning("metrics.json has no history — skipping loss curve plot")

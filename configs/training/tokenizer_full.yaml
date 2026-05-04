@@ -2,7 +2,7 @@
 # 200K steps ≈ ~100 epochs on ImageNet, matches VTP/VA-VAE protocols
 # @package training
 max_steps: 200000
-seed: 42
+num_workers: 20
 mixed_precision: "bf16"
 grad_accum_steps: 1
 grad_clip: 1.0
