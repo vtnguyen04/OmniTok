@@ -1,0 +1,69 @@
+# @package _global_
+# T_sparse_1: Sparse Teacher Routing — top-k=1 (Single Teacher per Sample)
+# Uses a lightweight router to select the BEST teacher for each sample.
+# Reduces alignment compute by 67% (1/3 teachers forwarded per step).
+# Linear bottleneck → inference zero-overhead (router + teachers discarded).
+#
+# Research Question: Can sparse routing (1 teacher/sample) match dense
+# multi-teacher distillation (all 3 teachers/step) while reducing
+# gradient conflict and compute cost?
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "sparse_routing_top1"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  cos_weight: 1.0
+
+teacher:
+  routing:
+    enabled: true
+    type: sparse
+    top_k: 1                    # Select 1 teacher per sample
+    temperature: 1.0
+    load_balance_weight: 0.01   # Prevent router collapse
+    z_loss_weight: 0.001        # ST-MoE: penalize large logits
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 0
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 16
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "Sparse Teacher Routing top_k=1. Each sample aligns with only 1 teacher (DINOv2/SigLIP/SAM) chosen by a lightweight router. Tests if sparse routing reduces gradient conflict while maintaining multi-teacher benefits."
+tags: ["omnitok", "tokenizer", "sparse_routing", "top_k_1"]

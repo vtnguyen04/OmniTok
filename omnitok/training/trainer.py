@@ -18,6 +18,7 @@ from ..losses.gan import GANLoss
 from ..losses.reconstruction import ReconstructionLoss
 from ..models.tokenizer import Tokenizer
 from ..teachers.multi_teacher import MultiTeacher
+from ..teachers.sparse_router import SparseTeacherRouter
 from ..utils.logger import OmniTokLogger
 from ..utils.metrics import MetricsTracker
 from .utils import load_checkpoint, save_checkpoint, update_ema
@@ -37,6 +38,7 @@ class TokenizerTrainer:
         gan_loss: Optional[GANLoss],
         train_dataloader: DataLoader,
         optimizer: torch.optim.Optimizer,
+        teacher_router: Optional[SparseTeacherRouter] = None,
         kl_loss: Optional[nn.Module] = None,
         latent_norm_loss: Optional[nn.Module] = None,
         gaussianity_loss: Optional[nn.Module] = None,
@@ -87,6 +89,7 @@ class TokenizerTrainer:
         self.latent_norm_loss = latent_norm_loss
         self.gaussianity_loss = gaussianity_loss
         self.understanding_loss = understanding_loss
+        self.teacher_router = teacher_router
 
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -135,6 +138,9 @@ class TokenizerTrainer:
             self.teachers = self.teachers.to(self.accelerator.device)
             self.teachers.eval()
 
+        if self.teacher_router is not None:
+            self.teacher_router = self.teacher_router.to(self.accelerator.device)
+
         self.omni_logger.rank = 0 if self.accelerator.is_main_process else 1
 
     def train(self) -> None:
@@ -142,7 +148,17 @@ class TokenizerTrainer:
         if self.accelerator.is_main_process:
             self.omni_logger.info(f"Starting training for {self.max_steps:,} steps")
             if self.use_wandb:
-                self.accelerator.init_trackers("omnitok-tokenizer", config=self.config)
+                exp_name = self.config.get("exp_name", "omnitok")
+                stage = self.config.get("stage", "tokenizer")
+                notes = self.config.get("notes", f"Running experiment {exp_name}")
+                init_kwargs = {
+                    "wandb": {
+                        "name": exp_name,
+                        "tags": ["omnitok", stage, exp_name],
+                        "notes": notes,
+                    }
+                }
+                self.accelerator.init_trackers("omnitok", config=self.config, init_kwargs=init_kwargs)
 
         self.tokenizer.train()
 
@@ -181,6 +197,11 @@ class TokenizerTrainer:
                 if self.accelerator.is_main_process and self.accelerator.sync_gradients:
                     self._last_images = images.detach().cpu()
                     self._last_labels = labels.detach().cpu() if labels is not None else None
+
+                if hasattr(self.gan_loss, "disc_start") and self.global_step == self.gan_loss.disc_start and self.global_step > 0:
+                    if self.accelerator.is_main_process:
+                        logger.info(f"GAN Phase starting at step {self.global_step}! Resetting optimizer states to prevent momentum shock.")
+                    self.optimizer.state.clear()
 
                 loss_dict = self._generator_step(images, texts, labels)
 
@@ -270,6 +291,22 @@ class TokenizerTrainer:
             extras.append(f"gauss=[bold]{loss_dict['loss/gaussianity']:.4f}[/bold]")
         if "loss/gan_g" in loss_dict:
             extras.append(f"gan=[bold]{loss_dict['loss/gan_g']:.4f}[/bold]")
+        if "router/balance_score" in loss_dict:
+            bal = loss_dict["router/balance_score"]
+            ent = loss_dict.get("router/entropy_ratio", 0.0)
+            bal_color = "green" if bal > 0.8 else ("yellow" if bal > 0.5 else "red")
+            # Build compact per-teacher usage string
+            usage_parts = []
+            for key, val in loss_dict.items():
+                if key.startswith("router/usage_"):
+                    t_short = key.replace("router/usage_", "")
+                    usage_parts.append(f"{t_short}={val:.0%}")
+            usage_str = "/".join(usage_parts) if usage_parts else ""
+            extras.append(
+                f"[{bal_color}]router[/{bal_color}]="
+                f"[bold]{bal:.2f}[/bold]"
+                f"[dim]({usage_str})[/dim]"
+            )
         extras_str = "  " + "  ".join(extras) if extras else ""
 
         # Elapsed
@@ -299,10 +336,27 @@ class TokenizerTrainer:
         )
 
         if self.use_wandb:
+            # Include LR in metrics for plotting
+            loss_dict["train/lr"] = lr
             self.accelerator.log(
-                {**loss_dict, "train/epoch": self.epoch, "train/lr": lr},
+                {**loss_dict, "train/epoch": self.epoch},
                 step=self.global_step,
             )
+
+            # Periodic router distribution chart (every 100 steps to avoid WandB overhead)
+            if (
+                self.teacher_router is not None
+                and "router/balance_score" in loss_dict
+                and self.global_step % 100 == 0
+                and hasattr(self, "wandb_logger")
+                and self.wandb_logger is not None
+            ):
+                teacher_names = self.teachers.teacher_names
+                usage = [loss_dict.get(f"router/usage_{t}", 0.0) for t in teacher_names]
+                weights = [loss_dict.get(f"router/weight_{t}", 0.0) for t in teacher_names]
+                self.wandb_logger.log_router_distribution(
+                    teacher_names, usage, weights, self.global_step
+                )
 
     def _calculate_adaptive_weight(self, loss_base: torch.Tensor, loss_target: torch.Tensor, last_layer: nn.Parameter) -> torch.Tensor:
         """Calculate adaptive weight to balance gradients (VA-VAE / VQGAN style)."""
@@ -316,7 +370,7 @@ class TokenizerTrainer:
         if grad_target is not None:
             norm_target = torch.norm(grad_target)
             weight = norm_base / (norm_target + 1e-4)
-            return torch.clamp(weight, 0.0, 1e4).detach()
+            return torch.clamp(weight, 0.0, 10.0).detach()
         return torch.tensor(1.0, device=loss_base.device)
 
     def _generator_step(self, images: torch.Tensor, texts: Optional[list] = None, labels: Optional[torch.Tensor] = None) -> Dict[str, float]:
@@ -335,8 +389,6 @@ class TokenizerTrainer:
             }
 
             if self.teachers is not None and self.alignment_loss is not None:
-                teacher_features = self.teachers.extract_all(images)
-                weights = self.teachers.get_loss_weights()
                 # Use pre-bottleneck features for alignment (REPA-E style):
                 # 768-dim → projector → teacher_dim gives much richer gradient signal
                 # than 32-dim bottleneck → projector → teacher_dim (nearly no info)
@@ -344,12 +396,53 @@ class TokenizerTrainer:
 
                 align_total = 0.0
                 mask = output.get("mask", None)
-                for t_name, t_feat in teacher_features.items():
-                    a_loss = self.alignment_loss(student_tokens, t_feat, mask=mask)
-                    align_total = align_total + weights[t_name] * a_loss
-                    loss_dict[f"loss/align_{t_name}"] = a_loss.item()
 
-                align_total = align_total + self.teachers.get_regularization()
+                if self.teacher_router is not None:
+                    # Sparse Teacher Routing: select top-k teachers per sample
+                    routing = self.teacher_router(student_tokens)
+                    teacher_features = self.teachers.extract_selected(images, routing.selected_indices)
+
+                    # Compute alignment loss only for selected teachers
+                    for t_name, t_feat in teacher_features.items():
+                        t_idx = self.teachers.teacher_names.index(t_name)
+                        # Per-sample mask: which samples selected this teacher
+                        sample_mask = (routing.selected_indices == t_idx).any(dim=-1)  # (B,)
+                        if not sample_mask.any():
+                            continue
+
+                        # Compute gating weight for this teacher across the batch
+                        # For samples that selected this teacher, get their gating weight
+                        weight_mask = (routing.selected_indices == t_idx).float()  # (B, top_k)
+                        gate_weight = (routing.gating_weights * weight_mask).sum(dim=-1).mean()  # scalar
+
+                        if isinstance(self.alignment_loss, torch.nn.ModuleDict):
+                            a_loss = self.alignment_loss[t_name](student_tokens, t_feat, mask=mask)
+                        else:
+                            a_loss = self.alignment_loss(student_tokens, t_feat, mask=mask)
+                        align_total = align_total + gate_weight * a_loss
+                        loss_dict[f"loss/align_{t_name}"] = a_loss.item()
+
+                    # Add load balance loss and log router metrics
+                    align_total = align_total + routing.load_balance_loss
+                    loss_dict["loss/router_balance"] = routing.load_balance_loss.item()
+
+                    router_metrics = self.teacher_router.get_routing_metrics(
+                        routing, self.teachers.teacher_names
+                    )
+                    loss_dict.update(router_metrics)
+                else:
+                    # Dense alignment: extract all teachers, compute all losses
+                    teacher_features = self.teachers.extract_all(images)
+                    weights = self.teachers.get_loss_weights()
+                    for t_name, t_feat in teacher_features.items():
+                        if isinstance(self.alignment_loss, torch.nn.ModuleDict):
+                            a_loss = self.alignment_loss[t_name](student_tokens, t_feat, mask=mask)
+                        else:
+                            a_loss = self.alignment_loss(student_tokens, t_feat, mask=mask)
+                        align_total = align_total + weights[t_name] * a_loss
+                        loss_dict[f"loss/align_{t_name}"] = a_loss.item()
+
+                    align_total = align_total + self.teachers.get_regularization()
 
                 # ---- ADAPTIVE GRADIENT BALANCING (VA-VAE Style) ----
                 # We want to balance the gradients of L_rec and L_align arriving at the encoder backbone.
@@ -414,17 +507,30 @@ class TokenizerTrainer:
 
                 # Adaptive GAN Weight (VQGAN style)
                 last_layer = None
-                if hasattr(self.tokenizer, "get_last_shared_layer"):
-                    last_layer = self.tokenizer.get_last_shared_layer()
+                if hasattr(self.tokenizer, "get_decoder_last_layer"):
+                    last_layer = self.tokenizer.get_decoder_last_layer()
 
                 gan_loss_val = g_result["total"]
                 if last_layer is not None and last_layer.requires_grad and self.use_adaptive_weighting:
                     d_weight = self._calculate_adaptive_weight(recon_result["total"], gan_loss_val, last_layer)
+                    # The value is clamped to max_gan_weight (default 10.0 instead of 10000) for safety.
+                    max_gan_weight = self.config.training.get("max_gan_weight", 10.0)
+                    d_weight = torch.clamp(d_weight, 0.0, max_gan_weight)
                 else:
                     d_weight = torch.tensor(1.0, device=total_loss.device)
 
-                # final_gan_weight = d_weight (because g_result["total"] already includes self.gan_loss.disc_weight)
-                total_loss = total_loss + d_weight * gan_loss_val
+                # Fade-in the discriminator gradient over 1000 steps to prevent shock collapse
+                if hasattr(self.gan_loss, "disc_start"):
+                    steps_since_start = max(0, self.global_step - self.gan_loss.disc_start)
+                    fade_factor = min(1.0, steps_since_start / 1000.0)
+                else:
+                    fade_factor = 1.0
+
+                d_weight = d_weight * fade_factor
+
+                # final_gan_weight = d_weight * disc_weight (g_result["total"] is now raw GAN loss)
+                disc_weight = getattr(self.gan_loss, "disc_weight", 0.5)
+                total_loss = total_loss + d_weight * disc_weight * gan_loss_val
                 loss_dict["loss/gan_g"] = g_result["gan"].item()
                 loss_dict["meta/adaptive_gan_weight"] = d_weight.item()
 
@@ -632,12 +738,17 @@ class TokenizerTrainer:
         return cls_attn.reshape(n_heads, h, w)
 
     def resume(self, ckpt_path: str) -> None:
+        resume_weights_only = self.config.get("resume_weights_only", False)
         state = load_checkpoint(
             ckpt_path,
             model=self.accelerator.unwrap_model(self.tokenizer),
             ema_model=self.ema_tokenizer,
             optimizer=self.optimizer,
+            resume_weights_only=resume_weights_only,
         )
-        self.global_step = state["step"]
-        self.epoch = state["epoch"]
-        logger.info(f"Resumed from step {self.global_step}, epoch {self.epoch}")
+        if not resume_weights_only:
+            self.global_step = state["step"]
+            self.epoch = state["epoch"]
+            logger.info(f"Resumed from step {self.global_step}, epoch {self.epoch}")
+        else:
+            logger.info("Resumed weights only, starting at step 0")
