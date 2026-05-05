@@ -293,7 +293,6 @@ class TokenizerTrainer:
             extras.append(f"gan=[bold]{loss_dict['loss/gan_g']:.4f}[/bold]")
         if "router/balance_score" in loss_dict:
             bal = loss_dict["router/balance_score"]
-            ent = loss_dict.get("router/entropy_ratio", 0.0)
             bal_color = "green" if bal > 0.8 else ("yellow" if bal > 0.5 else "red")
             # Build compact per-teacher usage string
             usage_parts = []
