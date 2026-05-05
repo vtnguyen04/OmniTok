@@ -1,5 +1,5 @@
-# L1 — Latent Constraint Ablation: No constraint (baseline)
 # @package _global_
+# L1 — Latent Constraint Ablation: No constraint (baseline)
 # No KL, no gaussianity, no latent_norm — latent space unconstrained
 defaults:
   - override /model/encoder: vit_base
@@ -14,7 +14,9 @@ defaults:
 model:
   encoder:
     pretrained: true
-    vit_feature_bottleneck: 32
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
   decoder:
     z_channels: 32
 

@@ -1,7 +1,7 @@
 """Tests for SparseTeacherRouter — sparse multi-teacher routing."""
 
-import torch
 import pytest
+import torch
 
 from omnitok.teachers.sparse_router import SparseTeacherRouter, TeacherRoutingResult
 

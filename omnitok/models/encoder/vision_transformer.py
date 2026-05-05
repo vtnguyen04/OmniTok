@@ -107,9 +107,10 @@ class DinoVisionTransformer(nn.Module):
         **ignored_kwargs,
     ):
         super().__init__()
+        self.num_latent_tokens = ignored_kwargs.get("num_latent_tokens", 0)
+
         if len(ignored_kwargs) > 0:
             logger.warning(f"Ignored kwargs: {ignored_kwargs}")
-        del ignored_kwargs
 
         norm_layer_cls = norm_layer_dict[norm_layer]
 
@@ -130,6 +131,10 @@ class DinoVisionTransformer(nn.Module):
         self.n_storage_tokens = n_storage_tokens
         if self.n_storage_tokens > 0:
             self.storage_tokens = nn.Parameter(torch.empty(1, n_storage_tokens, embed_dim, device=device))
+
+        if self.num_latent_tokens > 0:
+            self.latent_tokens = nn.Parameter(torch.empty(1, self.num_latent_tokens, embed_dim, device=device))
+            self.latent_pos_embed = nn.Parameter(torch.zeros(1, self.num_latent_tokens, embed_dim, device=device))
 
         self.use_abs_pos_embed = use_abs_pos_embed
         if self.use_abs_pos_embed:
@@ -214,6 +219,9 @@ class DinoVisionTransformer(nn.Module):
         nn.init.normal_(self.cls_token, std=0.02)
         if self.n_storage_tokens > 0:
             nn.init.normal_(self.storage_tokens, std=0.02)
+        if self.num_latent_tokens > 0:
+            nn.init.normal_(self.latent_tokens, std=0.02)
+            nn.init.trunc_normal_(self.latent_pos_embed, std=0.02)
         nn.init.zeros_(self.mask_token)
         named_apply(init_weights_vit, self)
 
@@ -294,6 +302,14 @@ class DinoVisionTransformer(nn.Module):
 
                 generated_mask = full_mask
 
+            if self.num_latent_tokens > 0:
+                B_idx = t2_x.size(0)
+                z = self.latent_tokens.expand(B_idx, -1, -1)
+                t2_x = torch.cat([t2_x, z + self.latent_pos_embed], dim=1)
+                if generated_mask is not None:
+                    latent_mask = torch.ones(B_idx, self.num_latent_tokens, device=t2_x.device)
+                    generated_mask = torch.cat([generated_mask, latent_mask], dim=1)
+
             all_x.append(t2_x)
             all_generated_masks.append(generated_mask)
 
@@ -310,6 +326,13 @@ class DinoVisionTransformer(nn.Module):
         all_x = x
         output = []
         for idx, (x, masks) in enumerate(zip(all_x, masks_list)):
+            if self.num_latent_tokens > 0:
+                x_norm_latent = self.norm(x[:, -self.num_latent_tokens:])
+                # Discard latent tokens from x for patch processing
+                x = x[:, :-self.num_latent_tokens]
+            else:
+                x_norm_latent = None
+
             if self.untie_cls_and_patch_norms or self.untie_global_and_local_cls_norm:
                 if self.untie_global_and_local_cls_norm and self.training and idx == 1:
                     x_norm_cls_reg = self.local_cls_norm(x[:, : self.n_storage_tokens + 1])
@@ -322,16 +345,28 @@ class DinoVisionTransformer(nn.Module):
                 x_norm = self.norm(x)
                 x_norm_cls_reg = x_norm[:, : self.n_storage_tokens + 1]
                 x_norm_patch = x_norm[:, self.n_storage_tokens + 1 :]
-            output.append(
-                {
-                    "x_norm_clstoken": x_norm_cls_reg[:, 0],
-                    "x_storage_tokens": x_norm_cls_reg[:, 1:],
-                    "x_norm_patchtokens": x_norm_patch,
-                    "x_prenorm": x,
-                    "masks": masks,
-                    "generated_mask": all_generated_masks[idx],
-                }
-            )
+
+            out_dict = {
+                "x_norm_clstoken": x_norm_cls_reg[:, 0],
+                "x_storage_tokens": x_norm_cls_reg[:, 1:],
+                "x_norm_patchtokens": x_norm_patch,
+                "x_prenorm": x,
+                "masks": masks,
+                "generated_mask": all_generated_masks[idx],
+            }
+            # For MAETok/REPA alignment, we often need just the patch mask (1=kept, 0=masked)
+            if all_generated_masks[idx] is not None:
+                # all_generated_masks is [special_tokens, patch_tokens, latent_tokens]
+                # special_tokens is n_storage_tokens + 1. patch_tokens is hw.
+                # So patch mask is from (n_storage_tokens + 1) to (n_storage_tokens + 1 + hw)
+                hw = hw_tuple[0] * hw_tuple[1]
+                start_idx = self.n_storage_tokens + 1
+                out_dict["mask"] = all_generated_masks[idx][:, start_idx:start_idx+hw]
+
+            if x_norm_latent is not None:
+                out_dict["x_norm_latenttokens"] = x_norm_latent
+
+            output.append(out_dict)
         return output
 
     def forward_features(

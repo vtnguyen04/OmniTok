@@ -57,6 +57,8 @@ class OmniTokWandBLogger:
             self._run = wandb.init(
                 project=project,
                 name=name,
+                id=_id,
+                resume="allow",
                 tags=tags or [],
                 notes=notes,
                 settings=wandb.Settings(init_timeout=120),

@@ -1,35 +1,50 @@
 #!/bin/bash
 # Sequential experiment runner for OmniTok
-# Each runs for ~2 epochs on ImageNet-10k
+# Runs ablation experiments sequentially with clean outputs.
+
+set -e  # Exit on first error
 
 EXPS=(
-    "baseline/T0_vtp_baseline"
+    "multi_teacher/T7_linear_projector"
     "baseline/T1_vanilla_vae"
-    "alignment/T2_frozen_dino_relkd"
-    "alignment/T3_frozen_dino_cosine"
-    "alignment/T4_frozen_dino_prediction"
-    "multi_teacher/T5_multi_dino_siglip"
-    "multi_teacher/T6_multi_dino_siglip_sam"
-    "multi_teacher/T7_dino_depth"
+    "ablations/decoder/D1_cnn_decoder"
+    "sparse_routing/T_sparse_top1"
     "alignment/T8_maetok_full"
-    "alignment/T9_gaussianity_reg"
-    "ablations/architecture/T10_linear_projector"
-    "core/T_final"
 )
 
+# No common overrides — each config uses its own max_steps (20000)
+COMMON_ARGS=""
+
+echo "================================================================"
+echo "  STARTING OMNITOK NIGHTLY EXPERIMENTS (${#EXPS[@]} CONFIGS)"
+echo "  $(date)"
+echo "================================================================"
+
 for EXP in "${EXPS[@]}"; do
+    # Derive exp_name from config path for cleanup
+    EXP_NAME=$(basename "$EXP" .yaml)
+
+    echo ""
     echo "================================================================"
-    echo "RUNNING EXPERIMENT: $EXP"
+    echo "  RUNNING: $EXP ($EXP_NAME)"
+    echo "  $(date)"
     echo "================================================================"
-    
-    python train.py +experiment="$EXP"
-    
+
+    # Clean previous outputs for this experiment
+    rm -rf outputs/${EXP_NAME}*
+
+    WANDB_MODE=online uv run python train.py experiment="$EXP" $COMMON_ARGS
+
     if [ $? -ne 0 ]; then
-        echo "Error in experiment $EXP. Skipping..."
+        echo "❌ Error in experiment $EXP. Stopping execution."
+        exit 1
     fi
-    
-    echo "Finished $EXP."
+
+    echo "✅ Finished $EXP at $(date)."
     echo ""
 done
 
-echo "All experiments finished."
+echo "================================================================"
+echo " 🎉 ALL EXPERIMENTS FINISHED SUCCESSFULLY! 🎉"
+echo "  $(date)"
+echo "================================================================"

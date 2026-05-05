@@ -39,10 +39,12 @@ class PredictionAlignmentLoss(BaseAlignmentLoss):
         depth: int = 2,
         projector_type: str = "mlp3",
         distance_type: str = "mse",
+        align_only_masked: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
         self.distance_type = distance_type
+        self.align_only_masked = align_only_masked
         self.projector = PROJECTOR_REGISTRY.build(
             projector_type,
             in_dim=student_dim,
@@ -83,14 +85,31 @@ class PredictionAlignmentLoss(BaseAlignmentLoss):
             # 1 - cosine similarity
             pred_features = F.normalize(pred_features, dim=-1)
             target_features = F.normalize(target_features, dim=-1)
-            loss = 1 - (pred_features * target_features).sum(dim=-1).mean()
+            loss_per_token = 1 - (pred_features * target_features).sum(dim=-1)
         elif self.distance_type == "l1":
-            loss = F.l1_loss(pred_features, target_features)
+            loss_per_token = F.l1_loss(pred_features, target_features, reduction="none").mean(dim=-1)
         elif self.distance_type == "smooth_l1":
-            loss = F.smooth_l1_loss(pred_features, target_features)
+            loss_per_token = F.smooth_l1_loss(pred_features, target_features, reduction="none").mean(dim=-1)
         elif self.distance_type == "mse":
-            loss = F.mse_loss(pred_features, target_features)
+            loss_per_token = F.mse_loss(pred_features, target_features, reduction="none").mean(dim=-1)
         else:
             raise ValueError(f"Unknown prediction alignment distance type: {self.distance_type}")
+
+        if mask is not None and self.align_only_masked:
+            # mask: 1 = KEPT, 0 = MASKED (in OmniTok). We want loss on MASKED tokens.
+            # However, mask includes CLS token (index 0). pred_features may not.
+            if mask.shape[1] > pred_features.shape[1]:
+                mask = mask[:, -pred_features.shape[1]:]
+
+            # The tokens to align are the ones that were MASKED (mask == 0)
+            align_mask = (mask == 0).float()
+
+            # If nothing was masked (e.g. at eval time), just take the mean
+            if align_mask.sum() > 0:
+                loss = (loss_per_token * align_mask).sum() / align_mask.sum()
+            else:
+                loss = loss_per_token.mean()
+        else:
+            loss = loss_per_token.mean()
 
         return loss

@@ -1,5 +1,4 @@
 # @package _global_
-# @package _global_
 # T3 — Frozen DINOv2-L + Direct Cosine (REPA-E style)
 defaults:
   - override /model/encoder: vit_large

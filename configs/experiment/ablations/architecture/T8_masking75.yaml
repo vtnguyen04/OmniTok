@@ -7,13 +7,17 @@
 # Token masking is already built into DinoVisionTransformer.forward_features()
 # via `mask_ratio` and `return_mask` kwargs. Training loop passes these to encoder.
 defaults:
-  - /model/encoder: vit_large
-  - /model/decoder: pixel_decoder_large
-  - /teacher: multi_dino_siglip
-  - /alignment: relational_kd
-  - /loss: standard
-  - /training: tokenizer_full
+  - override /model/encoder: vit_large
+  - override /model/decoder: pixel_decoder_large
+  - override /teacher: multi_dino_siglip
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
   - _self_
+
+model:
+  bottleneck:
+    in_dim: 1024
 
 # Token masking is passed to encoder.forward_features(mask_ratio=0.75, return_mask=True)
 # in the training loop when training.token_masking.enabled is true

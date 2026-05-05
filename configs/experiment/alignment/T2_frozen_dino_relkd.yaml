@@ -1,5 +1,4 @@
 # @package _global_
-# @package _global_
 # T2 — Frozen DINOv2-L + Relational KD (VA-VAE style)
 defaults:
   - override /model/encoder: vit_large

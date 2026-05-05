@@ -5,9 +5,12 @@ Ported from VTP (vtp/models/vtp.py) and continuous_tokenizer (modelling/tokenize
 """
 
 import logging
+import os
 from typing import Dict, Optional
 
+import torch
 import torch.nn as nn
+from huggingface_hub import hf_hub_download
 from torch import Tensor
 
 logger = logging.getLogger(__name__)
@@ -111,21 +114,38 @@ class Tokenizer(nn.Module):
         features = None
         if hasattr(self.encoder, "forward_features"):
             features = self.encoder.forward_features(x_norm, **kwargs)
-            patch_tokens = features["x_norm_patchtokens"]
-            b, n, c = patch_tokens.shape
-            h = x.shape[-2] // self.encoder.patch_size
-            w = x.shape[-1] // self.encoder.patch_size
-            latent = patch_tokens.reshape(b, h, w, c).permute(0, 3, 1, 2)
+            if "x_norm_latenttokens" in features:
+                # 1D Latent Tokens Paradigm (MAETok)
+                latent_tokens = features["x_norm_latenttokens"]
+                # Shape: (B, num_latent_tokens, C) -> (B, C, num_latent_tokens)
+                latent = latent_tokens.permute(0, 2, 1)
+            else:
+                # 2D Spatial Patches Paradigm (VTP/REPA)
+                patch_tokens = features["x_norm_patchtokens"]
+                b, n, c = patch_tokens.shape
+                h = x.shape[-2] // self.encoder.patch_size
+                w = x.shape[-1] // self.encoder.patch_size
+                latent = patch_tokens.reshape(b, h, w, c).permute(0, 3, 1, 2)
         else:
             latent = self.encoder(x_norm)
 
         # 2. Bottleneck (Variational or Deterministic)
         posterior = None
         if self.bottleneck is not None:
-            latent, bottleneck_info = self.bottleneck(latent)
+            # If latent is 1D (B, C, L), we need to reshape it for spatial bottlenecks if they expect 4D.
+            # Most bottlenecks (like Linear) can handle (B, C, L) by passing through convolution or permute.
+            # But wait, LinearBottleneck expects (B, C, H, W).
+            if latent.ndim == 3:
+                # Fake an H=1, W=L shape for 1D latents
+                latent = latent.unsqueeze(-2)
+                latent, bottleneck_info = self.bottleneck(latent)
+                latent = latent.squeeze(-2)
+            else:
+                latent, bottleneck_info = self.bottleneck(latent)
+
             if "posterior" in bottleneck_info:
                 posterior = bottleneck_info["posterior"]
-        elif latent.shape[1] == self.latent_dim * 2:
+        elif latent.ndim == 4 and latent.shape[1] == self.latent_dim * 2:
             # Legacy/Implicit VAE detection (VTP style)
             from omnitok.models.distributions import DiagonalGaussianDistribution
             posterior = DiagonalGaussianDistribution(latent)
@@ -145,8 +165,11 @@ class Tokenizer(nn.Module):
         if return_features and features is not None:
             result["features"] = features
 
-        if features is not None and "mask" in features:
-            result["mask"] = features["mask"]
+        if features is not None:
+            if "mask" in features:
+                result["mask"] = features["mask"]
+            elif "generated_mask" in features:
+                result["mask"] = features["generated_mask"]
 
         return result
 
@@ -258,32 +281,38 @@ def build_tokenizer(config: dict) -> Tokenizer:
     Returns:
         Instantiated Tokenizer.
     """
-    from omnitok.registry import BOTTLENECK_REGISTRY, DECODER_REGISTRY, ENCODER_REGISTRY
+    from omegaconf import DictConfig, OmegaConf
 
+    from omnitok.registry import BOTTLENECK_REGISTRY, DECODER_REGISTRY, ENCODER_REGISTRY
     m_cfg = config.get("model", {})
     e_cfg = m_cfg.get("encoder", {})
     b_cfg = m_cfg.get("bottleneck", {})
     d_cfg = m_cfg.get("decoder", {})
 
+    # Convert DictConfig to dict to allow pop()
+    e_cfg_dict = OmegaConf.to_container(e_cfg, resolve=True) if isinstance(e_cfg, DictConfig) else dict(e_cfg)
+    b_cfg_dict = OmegaConf.to_container(b_cfg, resolve=True) if isinstance(b_cfg, DictConfig) else dict(b_cfg)
+    d_cfg_dict = OmegaConf.to_container(d_cfg, resolve=True) if isinstance(d_cfg, DictConfig) else dict(d_cfg)
+
     # 1. Build Encoder
-    e_type = e_cfg.pop("type", "vit_encoder")
+    e_type = e_cfg_dict.pop("type", "vit_encoder")
     encoder = ENCODER_REGISTRY.build(
         e_type,
-        **e_cfg
+        **e_cfg_dict
     )
 
     # 2. Build Bottleneck (Optional)
     bottleneck = None
-    b_latent_dim = b_cfg.get("latent_dim") or b_cfg.get("out_channels")
-    if "type" in b_cfg:
-        b_type = b_cfg.pop("type")
+    b_latent_dim = b_cfg_dict.get("latent_dim") or b_cfg_dict.get("out_channels")
+    if "type" in b_cfg_dict:
+        b_type = b_cfg_dict.pop("type")
         bottleneck = BOTTLENECK_REGISTRY.build(
             b_type,
-            **b_cfg
+            **b_cfg_dict
         )
 
     # 3. Build Decoder
-    d_type = d_cfg.pop("type", "pixel_decoder")
+    d_type = d_cfg_dict.pop("type", "pixel_decoder")
 
     # Determine latent dimension connecting to decoder
     latent_dim = None
@@ -299,12 +328,57 @@ def build_tokenizer(config: dict) -> Tokenizer:
         latent_dim = encoder.embed_dim
 
     if latent_dim is not None:
-        d_cfg["in_chans"] = latent_dim
+        d_cfg_dict["in_chans"] = latent_dim
         logger.info(f"Auto-setting decoder in_chans={latent_dim} to match upstream component")
 
     decoder = DECODER_REGISTRY.build(
         d_type,
-        **d_cfg
+        **d_cfg_dict
     )
 
-    return Tokenizer(encoder=encoder, decoder=decoder, bottleneck=bottleneck)
+    pretrained_ckpt = m_cfg.get("pretrained_ckpt", None)
+    tokenizer = Tokenizer(encoder=encoder, decoder=decoder, bottleneck=bottleneck)
+
+    if pretrained_ckpt:
+        logger.info(f"Tokenizer level pretrained_ckpt: {pretrained_ckpt}")
+
+        # Download SD VAE checkpoints automatically since they are distributed via HuggingFace hub,
+        # rather than standard URLs, ensuring availability for reproduction (REPA-E requirement).
+        if not os.path.exists(pretrained_ckpt) and "/" in pretrained_ckpt:
+            try:
+                repo_id, filename = pretrained_ckpt.rsplit("/", 1)
+                logger.info(f"Auto-downloading {filename} from HuggingFace repo: {repo_id}...")
+                pretrained_ckpt = hf_hub_download(repo_id=repo_id, filename=filename)
+            except Exception as e:
+                logger.warning(f"HuggingFace download failed: {e}")
+
+        if os.path.exists(pretrained_ckpt):
+            ckpt = torch.load(pretrained_ckpt, map_location="cpu")
+            if "state_dict" in ckpt:
+                ckpt = ckpt["state_dict"]
+
+            # REPA-E / AutoencoderKL mapping logic to OmniTok structure
+            if "quant_conv.weight" in ckpt and "bottleneck.proj.weight" not in ckpt:
+                logger.info("Remapping 'quant_conv' to 'bottleneck.proj' (1x1 Conv -> Linear)")
+                w = ckpt.pop("quant_conv.weight")
+                if w.ndim == 4:
+                    w = w.squeeze(-1).squeeze(-1)  # [out, in, 1, 1] -> [out, in]
+                ckpt["bottleneck.proj.weight"] = w
+                ckpt["bottleneck.proj.bias"] = ckpt.pop("quant_conv.bias")
+
+            if "post_quant_conv.weight" in ckpt:
+                logger.info("Remapping 'post_quant_conv' to 'decoder.post_quant_conv'")
+                ckpt["decoder.post_quant_conv.weight"] = ckpt.pop("post_quant_conv.weight")
+                ckpt["decoder.post_quant_conv.bias"] = ckpt.pop("post_quant_conv.bias")
+
+            missing, unexpected = tokenizer.load_state_dict(ckpt, strict=False)
+            logger.info(f"Pretrained Tokenizer loaded from {pretrained_ckpt}.")
+            logger.info(f"Missing keys: {len(missing)}, Unexpected keys: {len(unexpected)}")
+            if len(missing) > 0:
+                logger.debug(f"Missing: {missing}")
+            if len(unexpected) > 0:
+                logger.debug(f"Unexpected: {unexpected}")
+        else:
+            logger.warning(f"Checkpoint {pretrained_ckpt} NOT FOUND. Training Tokenizer from scratch!")
+
+    return tokenizer

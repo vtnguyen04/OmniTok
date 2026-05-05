@@ -1,0 +1,65 @@
+# @package _global_
+# T1c — Strict REPA-E Tokenizer Reproduction
+# Reproduces the full REPA-E VAE Tokenizer: CNN Encoder + CNN Decoder
+defaults:
+  - override /model/encoder: cnn_encoder
+  - override /model/bottleneck: variational
+  - override /model/decoder: cnn_decoder
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  pretrained_ckpt: "REPA-E/vavae/vavae-f16d32.pt"  # Dùng VA-VAE (f16d32) của REPA-E để khớp chuẩn nén 16x của ViT (thay vì f8d4 nén 8x)
+  encoder:
+    z_channels: 32       # REPA-E IN-VAE/VA-VAE f16d32 uses 32 latent channels
+    double_z: true       # VAE needs mean and logvar
+  bottleneck:
+    in_dim: 64           # CNNEncoder output is 2 * z_channels = 64
+    latent_dim: 32
+  decoder:
+    z_channels: 32       # Must match encoder
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+  student_dim: 32        # CNN Encoder outputs 32d features, needs projection to match teachers
+
+loss:
+  reconstruction:
+    recon_type: l1
+    recon_weight: 1.0
+    perceptual_weight: 1.0  # REPA-E: 1.0
+  kl:
+    weight: 1.0e-6          # REPA-E: 1e-6
+  gan:
+    enabled: true
+    disc_start: 0           # REPA-E: 0
+    disc_weight: 0.1        # REPA-E: 0.1
+    lecam_weight: 0.0       # REPA-E: 0.0 (No LeCam)
+    n_layers: 3
+
+training:
+  use_adaptive_weighting: false  # REPA-E: false (Uses fixed disc_weight=0.1)
+  max_steps: 20000
+  log_every: 10
+  save_every: 100
+  grad_accum_steps: 2
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 8
+
+optimizer:
+  lr: 1.0e-4               # REPA-E uses 1e-4 for training VAE
+  lr_multipliers:
+    "encoder": 1.0         # REPA-E trains entire VAE with same LR
+    "decoder": 1.0
+
+exp_name: "T1c_repa_e_strict_tokenizer"
+notes: "STRICT REPA-E Reproduction: CNN Encoder + CNN Decoder. L1+LPIPS=1.0, GAN=0.1, no adaptive weight, lr=1e-4."
+tags: ["tokenizer", "vae", "repa_e_strict", "cnn_tokenizer"]

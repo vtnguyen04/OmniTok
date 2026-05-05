@@ -1,5 +1,4 @@
 # @package _global_
-# @package _global_
 # T0 — Reproduce VTP-B baseline
 defaults:
   - override /model/encoder: vit_base

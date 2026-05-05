@@ -44,7 +44,7 @@ teacher:
 loss:
   gan:
     enabled: true
-    disc_start: 0
+    disc_start: 5000
     disc_weight: 0.1
     lecam_weight: 0.01
     n_layers: 3

@@ -1,5 +1,4 @@
 # @package _global_
-# @package _global_
 # T4 — Frozen DINOv2-L + Prediction (MAETok style)
 defaults:
   - override /model/encoder: vit_large

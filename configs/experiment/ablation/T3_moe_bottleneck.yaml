@@ -4,13 +4,13 @@
 # This tests whether learned bidirectional read-write with expert routing
 # preserves more spatial/semantic information than point-wise linear projection.
 defaults:
-  - /model/encoder: vit_base
-  - /model/bottleneck: moe_crossattn
-  - /model/decoder: pixel_decoder_base
-  - /teacher: dinov2_base
-  - /alignment: relational_kd
-  - /loss: standard
-  - /training: tokenizer_full
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: moe_crossattn
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2_base
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
   - _self_
 
 model:
@@ -31,7 +31,7 @@ alignment:
 loss:
   gan:
     enabled: true
-    disc_start: 3000
+    disc_start: 5000
     disc_weight: 0.5
 
 training:

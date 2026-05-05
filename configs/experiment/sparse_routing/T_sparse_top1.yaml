@@ -12,7 +12,7 @@ defaults:
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
   - override /teacher: multi_dino_siglip_sam
-  - override /alignment: relational_kd
+  - override /alignment: cosine
   - override /loss: standard
   - override /training: tokenizer_full
   - _self_
@@ -20,6 +20,8 @@ defaults:
 exp_name: "sparse_routing_top1"
 
 model:
+  encoder:
+    pretrained: "dinov2_vitb14"
   bottleneck:
     in_dim: 768
     latent_dim: 64
@@ -27,8 +29,7 @@ model:
     in_chans: 64
 
 alignment:
-  student_dim: 768
-  cos_weight: 1.0
+  weight: 0.1
 
 teacher:
   routing:
@@ -42,7 +43,7 @@ teacher:
 loss:
   gan:
     enabled: true
-    disc_start: 0
+    disc_start: 5000
     disc_weight: 0.1
     lecam_weight: 0.01
     n_layers: 3
@@ -60,10 +61,10 @@ data:
   batch_size: 16
 
 optimizer:
-  lr: 1.0e-4
+  lr: 5.0e-4
   lr_multipliers:
-    "encoder": 0.1
+    "encoder": 0.01
     "decoder": 1.0
 
 notes: "Sparse Teacher Routing top_k=1. Each sample aligns with only 1 teacher (DINOv2/SigLIP/SAM) chosen by a lightweight router. Tests if sparse routing reduces gradient conflict while maintaining multi-teacher benefits."
-tags: ["omnitok", "tokenizer", "sparse_routing", "top_k_1"]
+tags: ["tokenizer", "sparse_routing", "top_k_1", "cosine_align", "multi_teacher"]

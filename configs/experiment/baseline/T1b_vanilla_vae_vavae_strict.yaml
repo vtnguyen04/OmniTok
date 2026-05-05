@@ -1,5 +1,5 @@
 # @package _global_
-# T1 — Multi-Teacher VAE with Variational Bottleneck
+# T1b — Multi-Teacher VAE with Variational Bottleneck (Fixed GAN)
 defaults:
   - override /model/encoder: vit_base
   - override /model/bottleneck: variational
@@ -14,9 +14,9 @@ model:
   encoder:
     pretrained: "dinov2_vitb14"
   bottleneck:
-    latent_dim: 64
+    latent_dim: 32  
   decoder:
-    in_chans: 64
+    in_chans: 32
 
 alignment:
   weight: 0.1
@@ -27,17 +27,18 @@ loss:
   reconstruction:
     recon_type: l1
     recon_weight: 1.0
-    perceptual_weight: 0.1
+    perceptual_weight: 1.0  # REPA-E: 1.0
   kl:
-    weight: 1.0e-6
+    weight: 1.0e-6          # REPA-E: 1e-6
   gan:
     enabled: true
-    disc_start: 5000
-    disc_weight: 0.1
-    lecam_weight: 0.01
+    disc_start: 0           # VA-VAE: 0
+    disc_weight: 0.5        # VA-VAE: 0.5
+    lecam_weight: 0.0       # VA-VAE: 0.0 (No LeCam)
     n_layers: 3
 
 training:
+  use_adaptive_weighting: true  # VA-VAE: true
   max_steps: 20000
   log_every: 10
   save_every: 100
@@ -55,6 +56,6 @@ optimizer:
     "encoder": 0.01
     "decoder": 1.0
 
-exp_name: "T1_vanilla_vae"
-notes: "Multi-Teacher VAE: ViT-B + Variational Bottleneck (64d) + Cosine Alignment + GAN."
-tags: ["tokenizer", "vae", "baseline", "multi_teacher", "cosine_align"]
+exp_name: "T1b_vanilla_vae_vavae_strict"
+notes: "Multi-Teacher VAE. STRICTLY follows VA-VAE hyperparams: perceptual_weight=1.0, disc_start=0, disc_weight=0.5, lecam_weight=0.0, latent_dim=32, adaptive_weighting=true."
+tags: ["tokenizer", "vae", "baseline", "vavae_strict"]

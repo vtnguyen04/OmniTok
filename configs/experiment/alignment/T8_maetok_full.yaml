@@ -1,11 +1,10 @@
 # @package _global_
-# @package _global_
 # T8 — MAETok (Continuous Tokenizer) Full Configuration
 defaults:
   - override /model/encoder: vit_large
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_large
-  - override /teacher: dinov2 # Fallback: HOG not implemented yet
+  - override /teacher: multi_dino_siglip_hog # Use DINO, SigLIP, HOG
   - override /alignment: prediction
   - override /loss: standard
   - override /training: tokenizer_full
@@ -13,24 +12,60 @@ defaults:
 
 model:
   encoder:
+    pretrained: "dinov2_vitl14"
     mask_ratio: 0.5    # Drop 50% of tokens during encoding
+    num_latent_tokens: 128
   bottleneck:
     in_dim: 1024
     latent_dim: 32
   decoder:
     in_chans: 32
+    num_latent_tokens: 128
 
 alignment:
-  student_dim: 32      # Bottleneck output dim (MAETok aligns latent)
-  teacher_dim: 1024    # Projected target dim
+  align_from: "post_bottleneck" # MAETok decodes from the compressed latents!
+  student_dim: 32      # Must match bottleneck.latent_dim
   projector_type: "vit_decoder"  # The auxiliary decoder!
-  distance_type: "cosine"
+  distance_type: "mse" # MAETok uses MSE
+  align_only_masked: true
+  is_1d_latent: true
+  weight: 0.1 # Downweight alignment loss so it doesn't destroy pixel reconstruction
+  # MAETok's vit_tinytiny auxiliary decoder parameters:
+  embed_dim: 192
+  depth: 3
+  num_heads: 3
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
 
 training:
   max_steps: 10000
+  grad_accum_steps: 4
+  log_every: 10
+  save_every: 100
+
+optimizer:
+  lr: 1.5e-4
+  lr_multipliers:
+    decoder: 1.0
+    bottleneck: 1.0
+    alignment_loss: 1.0
+
+scheduler:
+  type: "cosine"
+  warmup_steps: 200
 
 data:
-  batch_size: 2
+  batch_size: 8
 
-exp_name: "T8_maetok_full"
+mask_ratio: 0.5
+
+exp_name: "T8_maetok_full_v5"
 notes: "MAETok-style: Token masking + Prediction via ViT Aux Decoder + modular bottleneck."
+tags: ["tokenizer", "maetok", "token_masking", "prediction_align", "vit_large"]
+

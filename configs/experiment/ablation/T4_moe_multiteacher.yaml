@@ -60,6 +60,7 @@ optimizer:
     "encoder.feature_bottleneck": 1.0  # Force MoE bottleneck to use full LR 3e-4
     "encoder": 0.1
     "decoder": 1.0
+    "discriminator": 0.333  # 3e-4 * 0.333 ≈ 1e-4
 
 exp_name: ablation_moe_multiteacher_20k
 notes: "Ablation: MoE Bottleneck + Multi-Teacher (DINOv2+SigLIP+SAM). Tests if MoE experts specialize when conditioned on multi-modal teacher signals."

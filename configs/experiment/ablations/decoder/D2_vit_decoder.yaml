@@ -1,5 +1,5 @@
-# D2 — Decoder Ablation: ViT pixel decoder (VTP style)
 # @package _global_
+# D2 — Decoder Ablation: ViT pixel decoder (VTP style)
 # Same setup as D1 but with ViT decoder — measures decoder type impact
 defaults:
   - override /model/encoder: vit_base
@@ -14,7 +14,9 @@ defaults:
 model:
   encoder:
     pretrained: true
-    vit_feature_bottleneck: 32
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
 
 loss:
   latent_norm:

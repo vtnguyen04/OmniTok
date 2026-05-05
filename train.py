@@ -226,8 +226,7 @@ def _build_alignment_loss(cfg: DictConfig, tokenizer, teachers, log: OmniTokLogg
         loss_fn = torch.nn.ModuleDict()
         for t_name, t_module in teachers.teachers.items():
             t_kwargs = kwargs.copy()
-            if "teacher_dim" not in t_kwargs:
-                t_kwargs["teacher_dim"] = t_module.feature_dim
+            t_kwargs["teacher_dim"] = t_module.feature_dim
             if t_kwargs.get("student_dim", 0) != t_kwargs["teacher_dim"] and not t_kwargs.get("projector"):
                 t_kwargs["projector"] = "linear"
             loss_fn[t_name] = ALIGNMENT_REGISTRY.build(align_type, **t_kwargs)
@@ -299,6 +298,14 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
             )
             log.loss(f"GaussianityLoss enabled (weight={gauss_cfg.get('weight', 1e-4)})")
 
+    kl_loss = None
+    if "loss" in cfg and "kl" in cfg.loss:
+        kl_cfg = cfg.loss.kl
+        if kl_cfg.get("weight", 0.0) > 0.0:
+            from omnitok.losses.kl import KLLoss
+            kl_loss = KLLoss(weight=kl_cfg.get("weight", 1e-6))
+            log.loss(f"KLLoss enabled (weight={kl_cfg.get('weight', 1e-6)})")
+
     latent_norm_loss = None
     if "loss" in cfg and "latent_norm" in cfg.loss:
         ln_cfg = cfg.loss.latent_norm
@@ -307,7 +314,7 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
             latent_norm_loss = LatentNormLoss(weight=ln_cfg.get("weight", 0.01))
             log.loss(f"LatentNormLoss enabled (weight={ln_cfg.get('weight', 0.01)})")
 
-    return recon_loss, gan_loss, gaussianity_loss, latent_norm_loss
+    return recon_loss, gan_loss, gaussianity_loss, latent_norm_loss, kl_loss
 
 
 def _build_optimizer(cfg: DictConfig, model: torch.nn.Module, log: OmniTokLogger, extra_modules: dict = None):
@@ -485,7 +492,7 @@ def _setup_research_infra(cfg: DictConfig, log: OmniTokLogger):
         tags=cfg.get("tags", ["omnitok"]),
         notes=cfg.get("notes", f"Running experiment {exp_name}"),
         enabled=cfg.training.get("use_wandb", True),
-        run_id=cfg.training.get("run_id", cfg.get("exp_name")),
+        run_id=cfg.training.get("run_id", None),
     )
     if wandb_logger.run_url:
         log.info(f"WandB: {wandb_logger.run_url}")
@@ -569,12 +576,13 @@ def main(cfg: DictConfig) -> None:
     teachers = _build_teachers(cfg, log)
     teacher_router = _build_teacher_router(cfg, teachers, log) if teachers is not None else None
     alignment_loss = _build_alignment_loss(cfg, tokenizer, teachers, log) if teachers is not None else None
-    recon_loss, gan_loss, gaussianity_loss, latent_norm_loss = _build_losses(cfg, log)
+    recon_loss, gan_loss, gaussianity_loss, latent_norm_loss, kl_loss = _build_losses(cfg, log)
 
     extra_modules = {
         "alignment_loss": alignment_loss,
         "gaussianity_loss": gaussianity_loss,
         "latent_norm_loss": latent_norm_loss,
+        "kl_loss": kl_loss,
         "teachers": teachers,
         "teacher_router": teacher_router,
     }
@@ -584,9 +592,15 @@ def main(cfg: DictConfig) -> None:
     disc_optimizer = None
     disc_scheduler = None
     if gan_loss is not None:
+        # Use lr_multipliers to scale discriminator learning rate (default 1.0)
+        disc_multiplier = 1.0
+        if hasattr(cfg.optimizer, "lr_multipliers") and cfg.optimizer.lr_multipliers is not None:
+            disc_multiplier = cfg.optimizer.lr_multipliers.get("discriminator", 1.0)
+        
+        disc_lr = cfg.optimizer.lr * disc_multiplier
         disc_optimizer = torch.optim.Adam(
             gan_loss.discriminator.parameters(),
-            lr=cfg.optimizer.lr,
+            lr=disc_lr,
             betas=(0.5, 0.999),
         )
         disc_scheduler = _build_scheduler(cfg, disc_optimizer, log)
@@ -602,6 +616,8 @@ def main(cfg: DictConfig) -> None:
     train_config["output_dir"] = output_dir
     train_config["log_dir"] = log_dir
     train_config["seed"] = cfg.training.get("seed", 42)
+    train_config["alignment"] = OmegaConf.to_container(cfg.alignment, resolve=True) if hasattr(cfg, "alignment") else {}
+    train_config["mask_ratio"] = cfg.get("mask_ratio", 0.0)
 
     # Build trainer
     from omnitok.training.trainer import TokenizerTrainer
@@ -615,6 +631,7 @@ def main(cfg: DictConfig) -> None:
         gan_loss=gan_loss,
         gaussianity_loss=gaussianity_loss,
         latent_norm_loss=latent_norm_loss,
+        kl_loss=kl_loss,
         train_dataloader=train_dataloader,
         optimizer=optimizer,
         scheduler=scheduler,

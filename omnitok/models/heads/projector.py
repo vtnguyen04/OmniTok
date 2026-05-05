@@ -280,7 +280,7 @@ class ViTDecoderProjector(BaseProjector):
         super().__init__(in_dim, out_dim)
         from omnitok.models.decoder.aux_decoder import AuxiliaryViTDecoder
         self.decoder = AuxiliaryViTDecoder(
-            latent_dim=in_dim,
+            in_dim=in_dim,
             out_dim=out_dim,
             embed_dim=embed_dim,
             depth=depth,

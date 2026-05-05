@@ -11,12 +11,11 @@ Verifies:
 
 import pytest
 import torch
-import torch.nn as nn
 
 from omnitok.models.bottleneck.moe_crossattn import (
     CrossAttentionExpert,
-    MoECrossAttnBottleneck,
     MoECrossAttention,
+    MoECrossAttnBottleneck,
     MoEFFN,
     MoEGating,
 )

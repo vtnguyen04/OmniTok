@@ -1,5 +1,5 @@
-# B1 — Bottleneck Ablation: Linear bottleneck (VTP original)
 # @package _global_
+# B1 — Bottleneck Ablation: Linear bottleneck (VTP original)
 # Compare linear vs MLP bottleneck impact on reconstruction + alignment
 defaults:
   - override /model/encoder: vit_base
@@ -14,8 +14,9 @@ defaults:
 model:
   encoder:
     pretrained: true
-    vit_feature_bottleneck: 32
-    bottleneck_type: "linear"     # VTP original
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
   decoder:
     z_channels: 32
 

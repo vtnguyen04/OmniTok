@@ -187,6 +187,7 @@ class CNNDecoder(nn.Module):
         curr_res = resolution // 2 ** (self.num_resolutions - 1)
 
         # z to block_in
+        self.post_quant_conv = nn.Conv2d(z_channels, z_channels, 1)
         self.conv_in = nn.Conv2d(z_channels, block_in, 3, stride=1, padding=1)
 
         # middle
@@ -218,6 +219,11 @@ class CNNDecoder(nn.Module):
         self.norm_out = _normalize(block_in)
         self.conv_out = nn.Conv2d(block_in, out_ch, 3, stride=1, padding=1)
 
+        # FIX: Zero-initialize the final projection so the decoder starts by predicting mean/zero
+        # Prevents exploding gradients when training CNN decoder from scratch
+        nn.init.zeros_(self.conv_out.weight)
+        nn.init.zeros_(self.conv_out.bias)
+
         logger.info(
             f"CNNDecoder: ch={ch}, ch_mult={ch_mult}, z_channels={z_channels}, "
             f"resolution={resolution}, attn@{attn_resolutions}"
@@ -232,7 +238,8 @@ class CNNDecoder(nn.Module):
         Returns:
             Reconstructed image (B, out_ch, H, W).
         """
-        h = self.conv_in(z)
+        h = self.post_quant_conv(z)
+        h = self.conv_in(h)
 
         # middle
         h = self.mid.block_1(h, )

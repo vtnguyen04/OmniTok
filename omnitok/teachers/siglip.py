@@ -6,6 +6,7 @@ Provides patch-level features for semantic alignment.
 import logging
 from typing import Optional
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 
@@ -84,6 +85,14 @@ class SigLIPTeacher(BaseTeacher):
         Returns:
             Patch features (B, N, D).
         """
+        B, C, H, W = x.shape
+        if H % self.patch_size != 0 or W % self.patch_size != 0:
+            target_H = (H // 16) * self.patch_size
+            target_W = (W // 16) * self.patch_size
+            x = torch.nn.functional.interpolate(
+                x, size=(target_H, target_W), mode="bicubic", align_corners=False, antialias=True
+            )
+
         if self._config.get("source") == "hf":
             outputs = self._model(x)
             features = outputs.last_hidden_state

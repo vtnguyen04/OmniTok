@@ -6,7 +6,7 @@ defaults:
 loss:
   gan:
     enabled: true
-    disc_start: 0 # Bật ngay lập tức vì chúng ta đang resume từ step > 5000
+    disc_start: 5000 # Bật ngay lập tức vì chúng ta đang resume từ step > 5000
     disc_weight: 0.5
     lecam_weight: 0.05 # Tránh Discriminator quá ảo tưởng sức mạnh
 

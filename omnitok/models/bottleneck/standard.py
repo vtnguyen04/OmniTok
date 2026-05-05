@@ -71,3 +71,30 @@ class IdentityBottleneck(BaseBottleneck):
     """Identity bottleneck (No dimensionality reduction)."""
     def forward(self, x: Tensor) -> Tuple[Tensor, Dict[str, Any]]:
         return x, {}
+
+@BOTTLENECK_REGISTRY.register("mlp")
+class MLPBottleneck(BaseBottleneck):
+    """MLP bottleneck (AIOTok CompactLatentAdapter style).
+    LayerNorm -> Linear -> GELU -> Linear
+    """
+    def __init__(self, in_dim: int, latent_dim: int, hidden_dim: int = 3072, **kwargs) -> None:
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.proj = nn.Sequential(
+            nn.LayerNorm(in_dim),
+            nn.Linear(in_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, latent_dim)
+        )
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Dict[str, Any]]:
+        # x: (B, N, C) or (B, C, H, W)
+        if x.ndim == 4:
+            b, c, h, w = x.shape
+            x = x.permute(0, 2, 3, 1).reshape(-1, c)
+            z = self.proj(x)
+            z = z.reshape(b, h, w, -1).permute(0, 3, 1, 2)
+        else:
+            z = self.proj(x)
+        return z, {}
+

@@ -1,14 +1,13 @@
 # @package _global_
-# @package _global_
 # Mini Aligned - Fast test for CItraining on mini dataset (1K images)
 # Pretrained ViT-B encoder + cosine alignment to DINOv2-L teacher (REPA-E style)
 # Alignment uses pre-bottleneck features (768-dim) — full signal, not bottleneck (32-dim)
 defaults:
-  - /model/encoder: vit_base
-  - /model/decoder: pixel_decoder_base
-  - /teacher: dinov2
-  - /alignment: cosine
-  - /loss: standard
+  - override /model/encoder: vit_base
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2
+  - override /alignment: cosine
+  - override /loss: standard
   - _self_
 
 model:

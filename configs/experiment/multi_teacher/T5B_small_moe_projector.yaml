@@ -35,7 +35,7 @@ alignment:
 loss:
   gan:
     enabled: true
-    disc_start: 0
+    disc_start: 5000
     disc_weight: 0.1
     lecam_weight: 0.01
     n_layers: 3
@@ -57,6 +57,7 @@ optimizer:
   lr_multipliers:
     "encoder": 0.1
     "decoder": 1.0
+    "discriminator": 0.333
 
 notes: "T5B: Small MoE Alignment Projector (~15M). Tests if a low-capacity MoE gradient filter can harmonize 3 conflicting teacher signals better than simpler projectors but with less compute than large MoE."
 tags: ["omnitok", "tokenizer", "projector_ablation", "moe_projector"]

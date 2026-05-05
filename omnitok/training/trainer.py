@@ -57,7 +57,7 @@ class TokenizerTrainer:
         self.log_every = self.config.get("log_every", 100)
         self.save_every = self.config.get("save_every", 10_000)
         self.ema_decay = self.config.get("ema_decay", 0.9999)
-        self.alignment_weight = alignment_weight
+        self.alignment_weight = self.config.get("alignment_weight", alignment_weight)
         self.kl_weight = kl_weight
         self.understanding_weight = understanding_weight
         self.use_adaptive_weighting = self.config.get("use_adaptive_weighting", False)
@@ -360,6 +360,9 @@ class TokenizerTrainer:
 
     def _calculate_adaptive_weight(self, loss_base: torch.Tensor, loss_target: torch.Tensor, last_layer: nn.Parameter) -> torch.Tensor:
         """Calculate adaptive weight to balance gradients (VA-VAE / VQGAN style)."""
+        if not loss_target.requires_grad:
+            return torch.tensor(1.0, device=loss_base.device)
+
         grad_base_tuple = torch.autograd.grad(loss_base, last_layer, retain_graph=True, allow_unused=True)
         grad_base = grad_base_tuple[0]
         norm_base = torch.norm(grad_base) if grad_base is not None else torch.tensor(1.0, device=loss_base.device)
@@ -389,10 +392,16 @@ class TokenizerTrainer:
             }
 
             if self.teachers is not None and self.alignment_loss is not None:
-                # Use pre-bottleneck features for alignment (REPA-E style):
-                # 768-dim → projector → teacher_dim gives much richer gradient signal
-                # than 32-dim bottleneck → projector → teacher_dim (nearly no info)
-                student_tokens = features.get("x_norm_patchtokens_raw", features["x_norm_patchtokens"])
+                # Use pre or post bottleneck features for alignment depending on config.
+                align_from = self.config.get("alignment", {}).get("align_from", "pre_bottleneck")
+                if align_from == "pre_bottleneck":
+                    # REPA-E style: 768-dim → projector → teacher_dim gives much richer gradient signal
+                    student_tokens = features.get("x_norm_patchtokens_raw", features["x_norm_patchtokens"])
+                else:
+                    # MAETok style: Align from compressed latents.
+                    # Shape of output["latent"] is (B, C, h, w). We need (B, N, C).
+                    latents = output["latent"]
+                    student_tokens = latents.flatten(2).transpose(1, 2)
 
                 align_total = 0.0
                 mask = output.get("mask", None)
@@ -476,6 +485,11 @@ class TokenizerTrainer:
 
             latent = output["latent"]
 
+            if self.kl_loss is not None and "posterior" in output:
+                kl_result = self.kl_loss(posterior=output["posterior"])
+                total_loss = total_loss + kl_result["total"]
+                loss_dict["loss/kl"] = kl_result["total"].item()
+
             if self.latent_norm_loss is not None:
                 if "posterior" in output:
                     ln_result = self.latent_norm_loss(posterior=output["posterior"])
@@ -514,7 +528,7 @@ class TokenizerTrainer:
                 if last_layer is not None and last_layer.requires_grad and self.use_adaptive_weighting:
                     d_weight = self._calculate_adaptive_weight(recon_result["total"], gan_loss_val, last_layer)
                     # The value is clamped to max_gan_weight (default 10.0 instead of 10000) for safety.
-                    max_gan_weight = self.config.training.get("max_gan_weight", 10.0)
+                    max_gan_weight = self.config.get("max_gan_weight", 10.0)
                     d_weight = torch.clamp(d_weight, 0.0, max_gan_weight)
                 else:
                     d_weight = torch.tensor(1.0, device=total_loss.device)

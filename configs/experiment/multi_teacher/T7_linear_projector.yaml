@@ -11,7 +11,7 @@ defaults:
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
   - override /teacher: multi_dino_siglip_sam
-  - override /alignment: relational_kd
+  - override /alignment: cosine
   - override /loss: standard
   - override /training: tokenizer_full
   - _self_
@@ -19,6 +19,8 @@ defaults:
 exp_name: "T7_linear_projector"
 
 model:
+  encoder:
+    pretrained: "dinov2_vitb14"
   bottleneck:
     in_dim: 768
     latent_dim: 64
@@ -26,14 +28,13 @@ model:
     in_chans: 64
 
 alignment:
-  student_dim: 768
-  projector: linear              # UNE-predicted: 1 linear layer, no bias
-  cos_weight: 1.0
+  weight: 0.1
+  projector: linear              # UNE-predicted: 1 linear layer
 
 loss:
   gan:
     enabled: true
-    disc_start: 0
+    disc_start: 5000
     disc_weight: 0.1
     lecam_weight: 0.01
     n_layers: 3
@@ -51,10 +52,11 @@ data:
   batch_size: 16
 
 optimizer:
-  lr: 1.0e-4
+  lr: 5.0e-4
   lr_multipliers:
-    "encoder": 0.1
+    "encoder": 0.01
     "decoder": 1.0
 
 notes: "T7: Linear Projector (~25K params). UNE theory predicts this is optimal. Tests UNE hypothesis: are VF latent spaces just linear projections of the same Gaussian?"
-tags: ["omnitok", "tokenizer", "projector_ablation", "linear_projector", "une"]
+tags: ["tokenizer", "projector_ablation", "linear_projector", "une", "multi_teacher", "cosine_align"]
+
