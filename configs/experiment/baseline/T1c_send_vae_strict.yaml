@@ -1,0 +1,38 @@
+# @package _global_
+# T1c — Send-VAE strict reproduction
+# Follows Semantic-aware End-to-End VAE alignment with Direct DINO projection
+defaults:
+  - override /model/encoder: cnn_encoder
+  - override /model/bottleneck: identity_variational
+  - override /model/decoder: cnn_decoder
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: disentangled
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    latent_dim: 32
+  decoder:
+    z_channels: 32
+
+alignment:
+  align_from: "post_bottleneck"
+  weight: 1.0
+  # Note: The alignment loss itself contains the diffusion interpolant and mapper
+
+loss:
+  gan:
+    disc_start: 0          # Send-VAE starts GAN at step 0
+    disc_weight: 0.1       # Send-VAE uses much lower GAN weight
+    lecam_weight: 0.0      # Send-VAE does not use lecam
+
+training:
+  batch_size: 16
+  max_steps: 400000
+  learning_rate: 3e-4      # Send-VAE learning rate
+
+wandb:
+  name: "T1c_send_vae_strict"
+  tags: ["baseline", "cnn", "send_vae", "f16d32", "noise_mapper"]
