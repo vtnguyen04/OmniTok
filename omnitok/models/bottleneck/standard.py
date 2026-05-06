@@ -98,3 +98,19 @@ class MLPBottleneck(BaseBottleneck):
             z = self.proj(x)
         return z, {}
 
+
+@BOTTLENECK_REGISTRY.register("identity_variational")
+class IdentityVariationalBottleneck(BaseBottleneck):
+    """Identity Variational bottleneck (LDM/CNN style).
+
+    Takes moments directly from the encoder and samples.
+    """
+    def __init__(self, latent_dim: int, **kwargs) -> None:
+        super().__init__()
+        self.latent_dim = latent_dim
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Dict[str, Any]]:
+        from omnitok.models.distributions import DiagonalGaussianDistribution
+        posterior = DiagonalGaussianDistribution(x)
+        z = posterior.sample() if self.training else posterior.mode()
+        return z, {"posterior": posterior}
