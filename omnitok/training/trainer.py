@@ -192,15 +192,26 @@ class TokenizerTrainer:
 
                 images = batch[0].to(self.accelerator.device)
                 texts = batch[1] if len(batch) > 2 else None  # ImageTextDataset returns img, text, label
-                labels = batch[-1].to(self.accelerator.device) if len(batch) > 1 and isinstance(batch[-1], torch.Tensor) else None
+                labels = (
+                    batch[-1].to(self.accelerator.device)
+                    if len(batch) > 1 and isinstance(batch[-1], torch.Tensor)
+                    else None
+                )
 
                 if self.accelerator.is_main_process and self.accelerator.sync_gradients:
                     self._last_images = images.detach().cpu()
                     self._last_labels = labels.detach().cpu() if labels is not None else None
 
-                if hasattr(self.gan_loss, "disc_start") and self.global_step == self.gan_loss.disc_start and self.global_step > 0:
+                if (
+                    hasattr(self.gan_loss, "disc_start")
+                    and self.global_step == self.gan_loss.disc_start
+                    and self.global_step > 0
+                ):
                     if self.accelerator.is_main_process:
-                        logger.info(f"GAN Phase starting at step {self.global_step}! Resetting optimizer states to prevent momentum shock.")
+                        logger.info(
+                            f"GAN Phase starting at step {self.global_step}! "
+                            "Resetting optimizer states to prevent momentum shock."
+                        )
                     self.optimizer.state.clear()
 
                 loss_dict = self._generator_step(images, texts, labels)
@@ -358,7 +369,11 @@ class TokenizerTrainer:
                     teacher_names, usage, weights, self.global_step
                 )
 
-    def _calculate_adaptive_weight(self, loss_base: torch.Tensor, loss_target: torch.Tensor, last_layer: nn.Parameter) -> torch.Tensor:
+    def _calculate_adaptive_weight(
+        self, loss_base: torch.Tensor,
+        loss_target: torch.Tensor,
+        last_layer: nn.Parameter,
+    ) -> torch.Tensor:
         """Calculate adaptive weight to balance gradients (VA-VAE / VQGAN style)."""
         if not loss_target.requires_grad:
             return torch.tensor(1.0, device=loss_base.device)
@@ -376,12 +391,16 @@ class TokenizerTrainer:
             return torch.clamp(weight, 0.0, 10.0).detach()
         return torch.tensor(1.0, device=loss_base.device)
 
-    def _generator_step(self, images: torch.Tensor, texts: Optional[list] = None, labels: Optional[torch.Tensor] = None) -> Dict[str, float]:
+    def _generator_step(
+        self, images: torch.Tensor,
+        texts: Optional[list] = None,
+        labels: Optional[torch.Tensor] = None,
+    ) -> Dict[str, float]:
         with self.accelerator.accumulate(self.tokenizer):
             mask_ratio = self.config.get("mask_ratio", 0.0)
             output = self.tokenizer(images, return_features=True, mask_ratio=mask_ratio, return_mask=mask_ratio > 0.0)
             recon = output["reconstruction"]
-            features = output["features"]
+            features = output.get("features", {})
 
             recon_result = self.recon_loss(images, recon)
             total_loss = recon_result["total"]
@@ -471,7 +490,11 @@ class TokenizerTrainer:
                 total_loss = total_loss + final_align_weight * align_total
 
                 loss_dict["loss/align_total"] = align_total.item()
-                loss_dict["meta/adaptive_weight"] = adaptive_weight.item() if isinstance(adaptive_weight, torch.Tensor) else adaptive_weight
+                loss_dict["meta/adaptive_weight"] = (
+                    adaptive_weight.item()
+                    if isinstance(adaptive_weight, torch.Tensor)
+                    else adaptive_weight
+                )
 
             # Understanding Loss (Contrastive/Generative)
             if self.understanding_loss is not None and texts is not None:

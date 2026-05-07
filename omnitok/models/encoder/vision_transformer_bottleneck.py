@@ -129,9 +129,16 @@ class DinoVisionTransformerWithBottleneck(DinoVisionTransformer):
                     "Pass model_name explicitly."
                 )
 
-        logger.info(f"Loading pretrained DINOv2: {model_name}")
-        dino = torch.hub.load("facebookresearch/dinov2", model_name, verbose=False)
-        dino_state = dino.state_dict()
+        if model_name is not None and model_name.startswith("timm:"):
+            import timm
+            timm_name = model_name.split("timm:")[1]
+            logger.info(f"Loading pretrained from timm: {timm_name}")
+            dino = timm.create_model(timm_name, pretrained=True)
+            dino_state = dino.state_dict()
+        else:
+            logger.info(f"Loading pretrained DINOv2: {model_name}")
+            dino = torch.hub.load("facebookresearch/dinov2", model_name, verbose=False)
+            dino_state = dino.state_dict()
         our_state = self.state_dict()
 
         # Handle pos_embed interpolation

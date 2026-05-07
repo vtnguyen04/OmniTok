@@ -95,7 +95,7 @@ class FlowMatchingMapper(nn.Module):
     def forward(self, x: torch.Tensor, path_type: str = "linear") -> torch.Tensor:
         """Forward pass with noise addition and projection."""
         normalized_x = self.bn(x)
-        
+
         # Add noise (uniform weighting)
         time_input = torch.rand((normalized_x.shape[0], 1, 1, 1), device=x.device, dtype=x.dtype)
         noises = torch.randn_like(normalized_x)
@@ -112,7 +112,7 @@ class FlowMatchingMapper(nn.Module):
 @ALIGNMENT_REGISTRY.register("disentangled")
 class DisentangledAlignmentLoss(BaseAlignmentLoss):
     """Disentangled Representation Alignment Loss.
-    
+
     Extracts patches, adds diffusion noise using flow-matching interpolants,
     maps through 1 ViT block, and computes cosine similarity against teacher features.
     """
@@ -128,6 +128,7 @@ class DisentangledAlignmentLoss(BaseAlignmentLoss):
         projector_dim: int = 2048,
         num_heads: int = 12,
         path_type: str = "linear",
+        **kwargs,
     ) -> None:
         super().__init__()
         self.path_type = path_type
@@ -174,7 +175,7 @@ class DisentangledAlignmentLoss(BaseAlignmentLoss):
         # Compute cosine similarity loss
         proj_x = nn.functional.normalize(proj_x, dim=-1)
         teacher_features = nn.functional.normalize(teacher_features, dim=-1)
-        
+
         # Loss = 1 - cosine_similarity
         cos_sim = (teacher_features * proj_x).sum(dim=-1)
         loss = (1 - cos_sim).mean()

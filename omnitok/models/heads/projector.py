@@ -340,8 +340,10 @@ class PixelShuffleProjector(BaseProjector):
         x = x.view(B, W, int(H * self.scale_factor), int(C / self.scale_factor))
         # N, H * scale, W, C // scale
         x = x.permute(0, 2, 1, 3).contiguous()
-        # N, H * scale, W * scale, C // (scale ** 2)
-        x = x.view(B, int(H * self.scale_factor), int(W * self.scale_factor), int(C / (self.scale_factor * self.scale_factor)))
+        new_h = int(H * self.scale_factor)
+        new_w = int(W * self.scale_factor)
+        new_c = int(C / (self.scale_factor * self.scale_factor))
+        x = x.view(B, new_h, new_w, new_c)
         x = x.permute(0, 2, 1, 3).contiguous()
 
         # Flatten back to sequence

@@ -52,7 +52,10 @@ class DINOLoss(BaseAlignmentLoss):
                 torch.ones(n_epochs - warmup_teacher_temp_epochs) * teacher_temp
             ))
 
-    def compute(self, student_output: Tensor, teacher_output: Tensor, epoch: int = 0, mask: Optional[Tensor] = None) -> Tensor:
+    def compute(
+        self, student_output: Tensor, teacher_output: Tensor,
+        epoch: int = 0, mask: Optional[Tensor] = None,
+    ) -> Tensor:
         """Compute DINO distillation loss.
 
         Args:

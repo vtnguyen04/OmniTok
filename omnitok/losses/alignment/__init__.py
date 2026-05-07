@@ -9,6 +9,7 @@ from .distillation import DINOLoss, PatchContrastiveLoss
 from .prediction import PredictionAlignmentLoss
 from .relational import RelationalKDLoss
 from .vicreg import BarlowTwinsAlignmentLoss, VICRegAlignmentLoss
+from .disentangled_alignment import DisentangledAlignmentLoss
 
 __all__ = [
     "BaseAlignmentLoss",
@@ -21,4 +22,5 @@ __all__ = [
     "PatchContrastiveLoss",
     "VICRegAlignmentLoss",
     "BarlowTwinsAlignmentLoss",
+    "DisentangledAlignmentLoss",
 ]

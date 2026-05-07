@@ -23,8 +23,12 @@ def get_ram_stats():
 
 def get_gpu_stats():
     try:
+        query = (
+            "index,temperature.gpu,power.draw,power.limit,"
+            "memory.used,memory.total,utilization.gpu"
+        )
         res = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=index,temperature.gpu,power.draw,power.limit,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits"],
             stderr=subprocess.STDOUT
         ).decode('utf-8').strip().split('\n')
 

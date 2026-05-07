@@ -44,6 +44,7 @@ class RelationalKDLoss(BaseAlignmentLoss):
         student_dim: int = 64,
         teacher_dim: int = 1024,
         projector_hidden_dim: int = 0,
+        **kwargs,
     ) -> None:
         super().__init__()
         self.mode = mode

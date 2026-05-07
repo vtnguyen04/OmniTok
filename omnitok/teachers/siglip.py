@@ -17,8 +17,14 @@ logger = logging.getLogger(__name__)
 
 _SIGLIP_CONFIGS = {
     # SigLIP (timm)
-    "siglip_vit_b16_256": {"embed_dim": 768, "patch_size": 16, "img_size": 256, "timm": "vit_base_patch16_siglip_256", "source": "timm"},
-    "siglip_vit_b16_384": {"embed_dim": 768, "patch_size": 16, "img_size": 384, "timm": "vit_base_patch16_siglip_384", "source": "timm"},
+    "siglip_vit_b16_256": {
+        "embed_dim": 768, "patch_size": 16, "img_size": 256,
+        "timm": "vit_base_patch16_siglip_256", "source": "timm",
+    },
+    "siglip_vit_b16_384": {
+        "embed_dim": 768, "patch_size": 16, "img_size": 384,
+        "timm": "vit_base_patch16_siglip_384", "source": "timm",
+    },
     "siglip_vit_l16_256": {
         "embed_dim": 1024,
         "patch_size": 16,
@@ -34,9 +40,18 @@ _SIGLIP_CONFIGS = {
         "source": "timm"
     },
     # SigLIP 2 (HuggingFace)
-    "siglip2_vit_b16_256": {"embed_dim": 768, "patch_size": 16, "img_size": 256, "hf": "google/siglip2-base-patch16-256", "source": "hf"},
-    "siglip2_vit_l16_256": {"embed_dim": 1024, "patch_size": 16, "img_size": 256, "hf": "google/siglip2-large-patch16-256", "source": "hf"},
-    "siglip2_vit_so400m_14_384": {"embed_dim": 1152, "patch_size": 14, "img_size": 384, "hf": "google/siglip2-so400m-patch14-384", "source": "hf"},
+    "siglip2_vit_b16_256": {
+        "embed_dim": 768, "patch_size": 16, "img_size": 256,
+        "hf": "google/siglip2-base-patch16-256", "source": "hf",
+    },
+    "siglip2_vit_l16_256": {
+        "embed_dim": 1024, "patch_size": 16, "img_size": 256,
+        "hf": "google/siglip2-large-patch16-256", "source": "hf",
+    },
+    "siglip2_vit_so400m_14_384": {
+        "embed_dim": 1152, "patch_size": 14, "img_size": 384,
+        "hf": "google/siglip2-so400m-patch14-384", "source": "hf",
+    },
 }
 
 
