@@ -31,5 +31,9 @@ alignment:
 optimizer:
   lr: 1e-4
 
+data:
+  batch_size: 2
+
 exp_name: "mini_aligned"
 notes: "REPA-E style: pretrained ViT-B + cosine alignment (pre-bottleneck 768-dim) to DINOv2-L"
+tags: ["tokenizer", "core", "mini_aligned", "baseline"]

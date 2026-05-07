@@ -28,3 +28,4 @@ data:
 
 exp_name: "T5_multi_dino_siglip"
 notes: "Multi-teacher DINO+SigLIP with PHI-S and modular bottleneck."
+tags: ["multi_teacher", "dinov2", "siglip"]

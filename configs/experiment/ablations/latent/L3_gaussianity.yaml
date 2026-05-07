@@ -28,6 +28,7 @@ loss:
     weight: 0.1
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 
@@ -38,4 +39,5 @@ data:
   batch_size: 256
 
 exp_name: "L3_gaussianity"
-notes: "Latent ablation: GaussianityLoss (UNE) — MSE(Cov(z), I) whitening"
+notes: "Latent ablation: GaussianityRegularization (UNE theory) — constrains higher-order moments"
+tags: ["tokenizer", "latent_ablation", "gaussianity_reg"]

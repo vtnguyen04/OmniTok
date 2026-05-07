@@ -23,6 +23,7 @@ model:
     z_channels: 32       # Must match encoder
 
 alignment:
+  align_from: "post_bottleneck"
   weight: 0.1
   adaptive_weighting: true
   student_dim: 32        # CNN Encoder outputs 32d features, needs projection to match teachers
@@ -52,7 +53,7 @@ scheduler:
   warmup_steps: 500
 
 data:
-  batch_size: 8
+  batch_size: 4
 
 optimizer:
   lr: 1.0e-4               # REPA-E uses 1e-4 for training VAE

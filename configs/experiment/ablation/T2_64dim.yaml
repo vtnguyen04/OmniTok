@@ -15,6 +15,9 @@ model:
   decoder:
     in_chans: 64
 
+alignment:
+  student_dim: 768
+
 training:
   max_steps: 20000
   use_adaptive_weighting: false
@@ -25,5 +28,6 @@ loss:
   gan:
     disc_start: 5000
 
-exp_name: ablation_64dim_20k_v2
+exp_name: "T2_64dim"
 notes: "Ablation study: Tăng bottleneck từ 32 lên 64-dim để kiểm tra mức độ khôi phục high-frequency details (PSNR/sharpness) trong 20k steps. thêm disc_start lên 3000"
+tags: ["ablation", "bottleneck_dim", "64d"]

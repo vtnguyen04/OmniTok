@@ -1,0 +1,69 @@
+# @package _global_
+# T1d — RADIO-Style Multi-Teacher Distillation
+#
+# Reproduces RADIO's alignment strategy inside OmniTok:
+#   - Align PRE-bottleneck (768-dim, RADIO has no bottleneck)
+#   - MSE Loss (RADIO uses L2, not Cosine/RelKD)
+#   - PHI-S log-variance balancing (RADIO's core contribution)
+#   - FeatureNormalizer per teacher (EMA whitening)
+#   - 3 teachers: DINOv2 + SigLIP + SAM (RADIO uses CLIP + DINO + SAM)
+#
+# Research Question: Does RADIO's MSE + PHI-S strategy outperform
+# Cosine/RelKD when applied inside a tokenizer (with reconstruction)?
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: mse
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: "timm:vit_base_patch16_224"
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  align_from: "pre_bottleneck"
+  weight: 0.1
+  student_dim: 768
+
+teacher:
+  phi_s_balancing: true
+  normalize: true
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: true
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 16
+
+optimizer:
+  lr: 5.0e-4
+  lr_multipliers:
+    "encoder": 0.01
+    "decoder": 1.0
+
+exp_name: "T1d_radio_style"
+notes: "RADIO-style: MSE alignment + PHI-S balancing + FeatureNormalizer. Pre-bottleneck align (768d). Tests if RADIO's L2 distillation strategy works inside a tokenizer."
+tags: ["tokenizer", "radio_style", "mse_align", "phi_s", "multi_teacher", "pre_bottleneck"]

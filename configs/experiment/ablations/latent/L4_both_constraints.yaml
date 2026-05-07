@@ -29,6 +29,7 @@ loss:
     weight: 0.1
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 
@@ -39,4 +40,5 @@ data:
   batch_size: 256
 
 exp_name: "L4_both_constraints"
-notes: "Latent ablation: LatentNorm + Gaussianity — maximum latent regularization"
+notes: "Latent ablation: Both LatentNormLoss + GaussianityRegularization"
+tags: ["tokenizer", "latent_ablation", "both_constraints"]

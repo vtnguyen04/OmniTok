@@ -52,7 +52,7 @@ scheduler:
   warmup_steps: 500       # Fast warmup — MoE needs signal early
 
 data:
-  batch_size: 16
+  batch_size: 2
 
 optimizer:
   lr: 3.0e-4              # Higher LR — MoE bottleneck (90M params) needs stronger updates
@@ -62,5 +62,6 @@ optimizer:
     "decoder": 1.0
     "discriminator": 0.333  # 3e-4 * 0.333 ≈ 1e-4
 
-exp_name: ablation_moe_multiteacher_20k
+exp_name: "T4_moe_multiteacher"
 notes: "Ablation: MoE Bottleneck + Multi-Teacher (DINOv2+SigLIP+SAM). Tests if MoE experts specialize when conditioned on multi-modal teacher signals."
+tags: ["ablation", "moe_bottleneck", "multi_teacher"]

@@ -12,6 +12,7 @@ defaults:
 
 exp_name: "T_final"
 notes: "Full OmniTok Architecture with 4 teachers (DINO, SigLIP, SAM, Depth). Modular version."
+tags: ["omnitok", "final", "multi_teacher", "token_masking", "gaussianity"]
 
 # Override teacher to include all 4 explicitly as requested
 teacher:
@@ -54,10 +55,11 @@ model:
     in_chans: 64
 
 alignment:
+  align_from: "post_bottleneck"
   student_dim: 64
   teacher_dim: 1024
-  projector_type: "vit_decoder"
-  distance_type: "mse"
+  projector: "vit_decoder"
+  distance_type: "l2"
   embed_dim: 512
 
 loss:
@@ -69,4 +71,4 @@ training:
   max_steps: 10000
 
 data:
-  batch_size: 2
+  batch_size: 1

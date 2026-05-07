@@ -33,3 +33,4 @@ data:
 
 exp_name: "T9_gaussianity_reg"
 notes: "T5 + L_gauss regularization with modular bottleneck. Tests UNE hypothesis."
+tags: ["alignment", "gaussianity_reg", "une_hypothesis"]

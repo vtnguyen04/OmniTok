@@ -17,7 +17,7 @@ defaults:
   - override /training: tokenizer_full
   - _self_
 
-exp_name: "sparse_routing_top1"
+exp_name: "T_sparse_top1"
 
 model:
   encoder:
@@ -58,7 +58,7 @@ scheduler:
   warmup_steps: 500
 
 data:
-  batch_size: 16
+  batch_size: 2
 
 optimizer:
   lr: 5.0e-4

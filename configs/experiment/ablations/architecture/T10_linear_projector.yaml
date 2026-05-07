@@ -28,4 +28,5 @@ data:
   batch_size: 2
 
 exp_name: "T10_linear_projector"
-notes: "T5 + Linear projector with modular bottleneck. UNE hypothesis: linear map is sufficient."
+notes: "Architecture ablation: Use simple Linear projector instead of ViTDecoder projector"
+tags: ["tokenizer", "architecture_ablation", "linear_projector"]

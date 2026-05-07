@@ -28,3 +28,4 @@ data:
 
 exp_name: "T7_dino_depth"
 notes: "Novel: DINO+DepthAnything with modular bottleneck. First use of depth teacher."
+tags: ["multi_teacher", "dinov2", "depth_anything"]

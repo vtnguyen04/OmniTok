@@ -1,0 +1,6 @@
+# MSE alignment — RADIO style
+# L2 distance between student and teacher features (point-wise)
+# Simpler than Cosine/RelKD, relies on PHI-S + FeatureNormalizer for balancing
+# @package alignment
+type: "mse"
+weight: 1.0

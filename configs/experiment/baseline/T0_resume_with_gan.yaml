@@ -20,3 +20,4 @@ training:
 
 exp_name: "baseline_base_20k_v2_resumed_with_gan"
 notes: "Tiếp tục train từ checkpoint của v2, bật cứng GAN và tắt adaptive weighting."
+tags: ["tokenizer", "baseline", "vtp", "resume", "gan"]

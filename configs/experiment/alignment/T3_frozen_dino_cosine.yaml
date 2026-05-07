@@ -29,3 +29,4 @@ data:
 
 exp_name: "T3_frozen_dino_cosine"
 notes: "Direct Cosine (REPA-E style): point-wise alignment with modular bottleneck."
+tags: ["alignment", "frozen_dino", "cosine"]

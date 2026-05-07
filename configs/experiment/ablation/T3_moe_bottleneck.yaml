@@ -45,5 +45,6 @@ optimizer:
     "encoder": 0.1
     "decoder": 1.0
 
-exp_name: ablation_moe_bottleneck_20k
+exp_name: "T3_moe_bottleneck"
 notes: "Ablation: MoE Cross-Attention Bottleneck vs Linear Bottleneck. Tests Perceiver-style bidirectional read-write with expert routing for richer information compression at 64-dim."
+tags: ["ablation", "moe_bottleneck", "single_teacher"]

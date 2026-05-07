@@ -29,6 +29,7 @@ loss:
     n_layers: 3
 
 alignment:
+  student_dim: 768
   weight: 0.1
 
 training:

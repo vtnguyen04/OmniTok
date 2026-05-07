@@ -28,6 +28,7 @@ loss:
     enabled: false
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 
@@ -39,3 +40,4 @@ data:
 
 exp_name: "L2_latent_norm"
 notes: "Latent ablation: LatentNormLoss (AIOTok) — soft constraint mean≈0 std≈1"
+tags: ["tokenizer", "latent_ablation", "latent_norm"]

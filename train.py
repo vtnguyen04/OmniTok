@@ -211,6 +211,7 @@ def _build_alignment_loss(cfg: DictConfig, tokenizer, teachers, log: OmniTokLogg
     kwargs.pop("type", None)
     kwargs.pop("weight", None)
     kwargs.pop("adaptive_weighting", None)
+    kwargs.pop("align_from", None)
 
     # Auto-inject dimensions if not manually overridden.
     # Alignment uses pre-bottleneck features (REPA-E style) → student_dim = original embed_dim

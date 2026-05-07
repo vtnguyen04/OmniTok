@@ -32,7 +32,6 @@ training:
 
 data:
   batch_size: 16
-  exp_name: "T0_vtp_baseline"
 
 optimizer:
   lr_multipliers:
@@ -41,3 +40,4 @@ optimizer:
 
 exp_name: "T0_vtp_baseline"
 notes: "VTP-style baseline: ViT-B + DINOv2-B frozen + RelKD + GAN. Modular version."
+tags: ["tokenizer", "baseline", "vtp", "vit_base", "dinov2"]

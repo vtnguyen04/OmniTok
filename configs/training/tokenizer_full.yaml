@@ -14,3 +14,5 @@ metrics_window: 100
 exp_name: "omnitok"
 verbose: false
 use_adaptive_weighting: false  # Turn off to avoid OOM from massive double-backward graph traversals
+batch_size: 16
+

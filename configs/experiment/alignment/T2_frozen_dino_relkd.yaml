@@ -28,3 +28,4 @@ data:
 
 exp_name: "T2_frozen_dino_relkd"
 notes: "Relational KD (VA-VAE style): topology-preserving alignment with modular bottleneck."
+tags: ["alignment", "frozen_dino", "relational_kd"]

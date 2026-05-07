@@ -31,5 +31,9 @@ loss:
     enabled: true
     weight: 0.01
 
+alignment:
+  student_dim: 1024
+
 exp_name: "T8_masking75"
-notes: "T5 + 75% token masking (OpenVision). Measures compute-quality trade-off."
+notes: "Architecture ablation: Mask ratio 75% like MAE (defaults to 50%)"
+tags: ["tokenizer", "architecture_ablation", "mask_ratio_75"]

@@ -26,6 +26,7 @@ loss:
     weight: 0.01
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 

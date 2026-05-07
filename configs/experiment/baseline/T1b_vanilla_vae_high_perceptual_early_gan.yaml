@@ -56,6 +56,6 @@ optimizer:
     "encoder": 0.01
     "decoder": 1.0
 
-exp_name: "T1b_vanilla_vae_repa_e_strict"
+exp_name: "T1b_vanilla_vae_high_perceptual_early_gan"
 notes: "Multi-Teacher VAE. STRICTLY follows REPA-E hyperparams: perceptual_weight=1.0, disc_start=0, disc_weight=0.1, lecam_weight=0.0, latent_dim=32, no adaptive weighting."
 tags: ["tokenizer", "vae", "baseline", "repa_e_strict"]
