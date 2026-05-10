@@ -1,0 +1,4 @@
+type: mlp
+in_dim: 768
+latent_dim: 32
+hidden_dim: 3072

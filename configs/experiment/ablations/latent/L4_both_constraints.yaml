@@ -1,5 +1,5 @@
-# L4 — Latent Constraint Ablation: LatentNorm + Gaussianity combined
 # @package _global_
+# L4 — Latent Constraint Ablation: LatentNorm + Gaussianity combined
 # Both constraints active — maximum regularization
 defaults:
   - override /model/encoder: vit_base
@@ -14,7 +14,9 @@ defaults:
 model:
   encoder:
     pretrained: true
-    vit_feature_bottleneck: 32
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
   decoder:
     z_channels: 32
 
@@ -27,6 +29,7 @@ loss:
     weight: 0.1
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 
@@ -37,4 +40,5 @@ data:
   batch_size: 256
 
 exp_name: "L4_both_constraints"
-notes: "Latent ablation: LatentNorm + Gaussianity — maximum latent regularization"
+notes: "Latent ablation: Both LatentNormLoss + GaussianityRegularization"
+tags: ["tokenizer", "latent_ablation", "both_constraints"]

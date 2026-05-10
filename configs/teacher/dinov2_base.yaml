@@ -1,0 +1,11 @@
+# Single teacher: DINOv2-B (frozen)
+# Feature dim: 768, prefix_tokens=1 (CLS), 16x16=256 patch tokens
+# @package teacher
+enabled: true
+names: ["dinov2"]
+dinov2:
+  model_name: "dinov2_vitb14"
+  feature_dim: 768
+  freeze: true
+  use_patch_tokens: true     # align on spatial patch tokens (not CLS)
+  num_prefix_tokens: 1

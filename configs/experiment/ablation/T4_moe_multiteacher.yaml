@@ -1,0 +1,67 @@
+# @package _global_
+# Ablation: MoE Cross-Attention Bottleneck with Multi-Teacher Conditioning
+# Combines MoE Bottleneck with DINOv2 + SigLIP + SAM teachers.
+# MoE gating is conditioned on the aggregated teacher signals to enable
+# expert specialization per teacher modality.
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: moe_crossattn
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+    num_queries: 256
+    num_blocks: 1          # Reduce from 2 → 1 (halves params)
+    num_experts: 4          # Reduce from 4 → 2 (halves MoE params)
+    top_k: 1                # Only 1 active expert per token
+    teacher_dims:
+      dinov2: 384
+      siglip2: 768
+      sam: 256
+    teacher_cond_dim: 64    # Reduce from 128 → 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  cos_weight: 1.0
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.5
+    n_layers: 3          # Increase discriminator capacity from default 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: true  # use PHI-S balancing
+  resume_from: null
+  log_every: 10
+  save_every: 100
+  grad_accum_steps: 1    # Effective batch size 16
+
+scheduler:
+  warmup_steps: 500       # Fast warmup — MoE needs signal early
+
+data:
+  batch_size: 2
+
+optimizer:
+  lr: 3.0e-4              # Higher LR — MoE bottleneck (90M params) needs stronger updates
+  lr_multipliers:
+    "encoder.feature_bottleneck": 1.0  # Force MoE bottleneck to use full LR 3e-4
+    "encoder": 0.1
+    "decoder": 1.0
+    "discriminator": 0.333  # 3e-4 * 0.333 ≈ 1e-4
+
+exp_name: "T4_moe_multiteacher"
+notes: "Ablation: MoE Bottleneck + Multi-Teacher (DINOv2+SigLIP+SAM). Tests if MoE experts specialize when conditioned on multi-modal teacher signals."
+tags: ["ablation", "moe_bottleneck", "multi_teacher"]

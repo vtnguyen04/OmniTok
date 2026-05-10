@@ -312,9 +312,12 @@ class SiT(nn.Module):
         t: (N,) tensor of diffusion timesteps
         y: (N,) tensor of class labels
         zs: (N, L, C') tensor of external visual features
-        loss_kwargs: dictionary of loss function arguments, should contain: `weighting`, `path_type`, `prediction`, `align_only`
-        time_input: optionally provide a tensor of timesteps to use for the forward pass, otherwise sample from a distribution
-        noises: optionally provide a tensor of noises to use for the forward pass, otherwise sample from a distribution
+        loss_kwargs: dictionary of loss function arguments, should contain:
+            `weighting`, `path_type`, `prediction`, `align_only`
+        time_input: optionally provide a tensor of timesteps,
+            otherwise sample from a distribution
+        noises: optionally provide a tensor of noises,
+            otherwise sample from a distribution
         """
         # Normalize the input x with batch norm running stats
         normalized_x = self.bn(x)

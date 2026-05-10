@@ -1,5 +1,5 @@
-# L3 — Latent Constraint Ablation: GaussianityLoss (UNE style)
 # @package _global_
+# L3 — Latent Constraint Ablation: GaussianityLoss (UNE style)
 # MSE(Cov(z), I) — stronger constraint, ≈ whitening regularization
 defaults:
   - override /model/encoder: vit_base
@@ -14,7 +14,9 @@ defaults:
 model:
   encoder:
     pretrained: true
-    vit_feature_bottleneck: 32
+  bottleneck:
+    in_dim: 768
+    latent_dim: 32
   decoder:
     z_channels: 32
 
@@ -26,6 +28,7 @@ loss:
     weight: 0.1
 
 alignment:
+  student_dim: 768
   weight: 0.1
   adaptive_weighting: true
 
@@ -36,4 +39,5 @@ data:
   batch_size: 256
 
 exp_name: "L3_gaussianity"
-notes: "Latent ablation: GaussianityLoss (UNE) — MSE(Cov(z), I) whitening"
+notes: "Latent ablation: GaussianityRegularization (UNE theory) — constrains higher-order moments"
+tags: ["tokenizer", "latent_ablation", "gaussianity_reg"]

@@ -1,0 +1,62 @@
+# @package _global_
+# T5: Multi-Teacher + Large MoE Alignment Projector (45M params)
+# Architecture: ViT → Linear Bottleneck → Decoder (lightweight inference).
+# Projector: MoE 45M (4 experts, top_k=2, ffn_ratio=4.0).
+# The MoE projector acts as a massive "gradient filter" during training,
+# harmonizing conflicting multi-teacher gradients. Discarded at inference.
+#
+# Research Question: Can a high-capacity MoE projector perfectly harmonize
+# conflicting multi-modal gradients from 3 teachers?
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T5_large_moe_projector"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  projector: moe
+  projector_hidden_dim: 2048    # Large hidden dim for MoE experts
+  cos_weight: 1.0
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 2
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "T5: Large MoE Alignment Projector (~45M). Tests if a high-capacity MoE gradient filter can harmonize 3 conflicting teacher signals better than simpler projectors."
+tags: ["omnitok", "tokenizer", "projector_ablation", "moe_projector"]

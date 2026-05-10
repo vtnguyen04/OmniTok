@@ -1,11 +1,10 @@
 # @package _global_
-# @package _global_
 # T5 — Multi-teacher: DINOv2-L + SigLIP-L with PHI-S balancing
 defaults:
   - override /model/encoder: vit_large
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
-  - override /teacher: multi_teacher
+  - override /teacher: multi_dino_siglip
   - override /alignment: relational_kd
   - override /loss: standard
   - override /training: tokenizer_full
@@ -29,3 +28,4 @@ data:
 
 exp_name: "T5_multi_dino_siglip"
 notes: "Multi-teacher DINO+SigLIP with PHI-S and modular bottleneck."
+tags: ["multi_teacher", "dinov2", "siglip"]

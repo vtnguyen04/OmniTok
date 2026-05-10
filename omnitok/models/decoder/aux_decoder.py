@@ -21,7 +21,7 @@ class AuxiliaryViTDecoder(nn.Module):
     positional embeddings, and processes them through shallow ViT blocks.
 
     Args:
-        latent_dim: Dimension of the tokenizer's latent space (e.g., 64).
+        in_dim: Dimension of the tokenizer's latent space (e.g., 64).
         out_dim: Target feature dimension to predict (e.g., 1024 for DINOv2).
         embed_dim: Hidden dimension of the decoder blocks.
         depth: Number of transformer blocks.
@@ -32,26 +32,35 @@ class AuxiliaryViTDecoder(nn.Module):
 
     def __init__(
         self,
-        latent_dim: int = 64,
+        in_dim: int = 64,
         out_dim: int = 1024,
         embed_dim: int = 512,
         depth: int = 4,
         num_heads: int = 8,
         mlp_ratio: float = 4.0,
         num_patches: int = 256,
+        is_1d_latent: bool = False,
+        **kwargs,
     ) -> None:
         super().__init__()
         self.num_patches = num_patches
         self.embed_dim = embed_dim
+        self.is_1d_latent = is_1d_latent
 
         # Project latent to decoder dimension
-        self.embed = nn.Linear(latent_dim, embed_dim)
+        self.embed = nn.Linear(in_dim, embed_dim)
 
         # Mask token for MAE-style decoding
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
-        # Positional embedding (1D standard)
+        # Positional embedding (2D sincos)
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        import math
+        grid_size = int(math.sqrt(num_patches))
+        from omnitok.models.layers.embeddings import get_2d_sincos_pos_embed
+        sincos_emb = get_2d_sincos_pos_embed(embed_dim, grid_size)
+        self.pos_embed.data.copy_(torch.from_numpy(sincos_emb).float().unsqueeze(0))
+        self.pos_embed.requires_grad = False
 
         # Transformer blocks
         self.blocks = nn.ModuleList(
@@ -75,7 +84,7 @@ class AuxiliaryViTDecoder(nn.Module):
 
     def _init_weights(self):
         nn.init.normal_(self.mask_token, std=0.02)
-        nn.init.normal_(self.pos_embed, std=0.02)
+        # pos_embed is already initialized with sincos in __init__
         self.apply(self._init_module_weights)
 
     def _init_module_weights(self, m):
@@ -101,43 +110,44 @@ class AuxiliaryViTDecoder(nn.Module):
         B, N, _ = x.shape
         x = self.embed(x)
 
-        # If masking was used in encoder, we need to reconstruct full sequence
-        if mask is not None:
-            # mask is (B, num_patches)
+        # If we have exactly num_patches, it's 2D spatial patches paradigm
+        if N == self.num_patches:
+            x = x + self.pos_embed
+        # If it's explicitly marked as 1D Latents Paradigm (MAETok)
+        elif self.is_1d_latent:
+            # We have N latent tokens. We need to create num_patches mask tokens.
+            mask_tokens = self.mask_token.expand(B, self.num_patches, -1)
+            mask_tokens = mask_tokens + self.pos_embed
+            x = torch.cat([mask_tokens, x], dim=1) # (B, num_patches + N, embed_dim)
+        # If we have < num_patches but it's a masked sequence (REPA with dropping)
+        elif mask is not None and mask.sum(dim=1)[0].int() == N:
+            # Spatial dropping (REPA style)
             assert mask.shape[1] == self.num_patches
             full_x = self.mask_token.expand(B, self.num_patches, -1).clone()
 
             # Scatter the kept tokens into their original positions
-            # x shape is (B, N_kept, embed_dim)
-            # mask shape is (B, num_patches), boolean or float 1/0
             mask_bool = mask.bool()
-
-            # For each batch element, place the N_kept tokens into the true positions
             for b in range(B):
                 full_x[b, mask_bool[b]] = x[b]
 
             x = full_x
+            x = x + self.pos_embed
         else:
-            # If no masking, assume N == num_patches
-            if N != self.num_patches:
-                # E.g. x is spatial (B, H, W, C)
-                if x.ndim == 4:
-                    x = x.flatten(1, 2)
-                elif N < self.num_patches:
-                    # In case it's compressed, pad with mask tokens
-                    # MAETok style: concatenate mask tokens to match length
-                    num_masks = self.num_patches - N
-                    masks = self.mask_token.expand(B, num_masks, -1)
-                    x = torch.cat([x, masks], dim=1)
-
-        # Add positional embedding
-        x = x + self.pos_embed
+            if x.ndim == 4:
+                x = x.flatten(1, 2)
+                x = x + self.pos_embed
+            else:
+                x = x + self.pos_embed
 
         # Apply blocks
         for blk in self.blocks:
             x = blk(x)
 
         x = self.norm(x)
+
+        # If we appended latents, we only want to predict teacher features for the image patches (the first num_patches)
+        if x.shape[1] > self.num_patches:
+            x = x[:, :self.num_patches]
 
         # Predict target features
         out = self.head(x)

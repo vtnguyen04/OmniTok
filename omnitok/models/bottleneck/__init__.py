@@ -1,2 +1,2 @@
 """Bottleneck module."""
-from . import standard
+from . import moe_crossattn, standard

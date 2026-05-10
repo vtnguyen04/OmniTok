@@ -1,0 +1,33 @@
+# @package _global_
+# Ablation: 64-dim bottleneck
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2_base
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+model:
+  bottleneck:
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  resume_from: null
+  save_every: 100
+
+loss:
+  gan:
+    disc_start: 5000
+
+exp_name: "T2_64dim"
+notes: "Ablation study: Tăng bottleneck từ 32 lên 64-dim để kiểm tra mức độ khôi phục high-frequency details (PSNR/sharpness) trong 20k steps. thêm disc_start lên 3000"
+tags: ["ablation", "bottleneck_dim", "64d"]

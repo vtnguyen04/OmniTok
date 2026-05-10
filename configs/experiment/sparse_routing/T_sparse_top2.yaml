@@ -1,0 +1,67 @@
+# @package _global_
+# T_sparse_2: Sparse Teacher Routing — top-k=2 (Two Teachers per Sample)
+# Middle ground: router selects 2 out of 3 teachers per sample.
+# Reduces alignment compute by 33% while maintaining multi-teacher diversity.
+#
+# Research Question: Does top_k=2 provide a better accuracy/compute
+# trade-off than top_k=1 (too sparse) or top_k=3 (dense)?
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "sparse_routing_top2"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  cos_weight: 1.0
+
+teacher:
+  routing:
+    enabled: true
+    type: sparse
+    top_k: 2                    # Select 2 teachers per sample
+    temperature: 1.0
+    load_balance_weight: 0.01
+    z_loss_weight: 0.001
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 2
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "Sparse Teacher Routing top_k=2. Each sample aligns with 2 out of 3 teachers. Middle ground between full-dense and aggressive-sparse routing."
+tags: ["omnitok", "tokenizer", "sparse_routing", "top_k_2"]

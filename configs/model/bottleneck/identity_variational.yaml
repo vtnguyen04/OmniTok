@@ -1,0 +1,4 @@
+# Identity Variational Bottleneck (For CNN AutoencoderKL style)
+# @package model.bottleneck
+type: "identity_variational"
+latent_dim: 32

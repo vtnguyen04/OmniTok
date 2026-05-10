@@ -66,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-rfid", action="store_true", help="Skip rFID (requires cleanfid, slow)")
     parser.add_argument("--skip-linear-probe", action="store_true", help="Skip linear probe")
     parser.add_argument("--skip-gaussianity", action="store_true", help="Skip Gaussianity Score")
+    parser.add_argument("--no-ema", action="store_true", help="Do not load EMA model, evaluate the main model instead (recommended for runs < 50k steps)")
     parser.add_argument("--n-recon-images", type=int, default=8, help="Images to show in recon grid")
     parser.add_argument("--plots-only", action="store_true", help="Only regenerate plots from saved results")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
@@ -83,67 +84,40 @@ def _find_latest_checkpoint(ckpt_dir: str) -> Optional[str]:
     return os.path.join(ckpt_dir, ckpts[-1]) if ckpts else None
 
 
-def load_tokenizer(exp_dir: str, ckpt_path: str, device: torch.device, log: OmniTokLogger):
-    """Reconstruct tokenizer from saved config.yaml, then load checkpoint weights.
-
-    train.py always saves config.yaml to exp_dir. We read it with OmegaConf
-    and use the same _build_tokenizer logic to reconstruct the exact architecture.
-
-    Args:
-        exp_dir: Experiment output dir (must contain config.yaml).
-        ckpt_path: Path to checkpoint .pt file.
-        device: Target device.
-        log: OmniTokLogger.
-
-    Returns:
-        Tokenizer model in eval mode on device.
-    """
+def load_tokenizer(exp_dir: str, ckpt_path: str, device: str, log, args):
+    """Load model from experiment directory and checkpoint."""
+    # Load config
     config_path = os.path.join(exp_dir, "config.yaml")
     if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"config.yaml not found in {exp_dir}. "
-            "Run train.py first (it saves config.yaml automatically)."
-        )
+        raise FileNotFoundError(f"Config not found at {config_path}")
 
-    cfg = OmegaConf.load(config_path)
+    config_dict = OmegaConf.load(config_path)
     log.info(f"Loaded config from {config_path}")
 
-    from omnitok.models.tokenizer import Tokenizer
-    from omnitok.models.encoder.vision_transformer_bottleneck import DinoVisionTransformerWithBottleneck
-    from omnitok.models.decoder.pixel_decoder import DinoV3PixelDecoder
-
-    encoder = DinoVisionTransformerWithBottleneck(
-        img_size=cfg.model.encoder.img_size,
-        patch_size=cfg.model.encoder.patch_size,
-        embed_dim=cfg.model.encoder.embed_dim,
-        depth=cfg.model.encoder.depth,
-        num_heads=cfg.model.encoder.num_heads,
-        vit_feature_bottleneck=cfg.model.encoder.get("vit_feature_bottleneck", 32),
-    )
-    decoder = DinoV3PixelDecoder(
-        in_chans=cfg.model.encoder.get("vit_feature_bottleneck", 32),
-        out_chans=cfg.model.decoder.get("out_chans", 3),
-        upscale_factor=cfg.model.decoder.get("upscale_factor", 16),
-        embed_dim=cfg.model.decoder.embed_dim,
-        depth=cfg.model.decoder.depth,
-        num_heads=cfg.model.decoder.num_heads,
-    )
-    tokenizer = Tokenizer(encoder=encoder, decoder=decoder)
+    from omnitok.models.tokenizer import build_tokenizer
+    # Build model using registry
+    tokenizer = build_tokenizer(OmegaConf.to_container(config_dict, resolve=True))
 
     state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    # Prefer EMA weights for evaluation (more stable)
-    if "ema_model" in state:
-        tokenizer.load_state_dict(state["ema_model"])
-        log.info(f"Loaded EMA weights from step {state.get('step', '?')}")
+    
+    if "ema_model" in state and not args.no_ema:
+        log.info(f"Loaded EMA weights from step {state.get('global_step', 'unknown')}")
+        missing, unexpected = tokenizer.load_state_dict(state["ema_model"], strict=False)
+        if missing:
+            log.warning(f"Missing keys when loading EMA: {missing[:5]}")
     elif "model" in state:
-        tokenizer.load_state_dict(state["model"])
-        log.info(f"Loaded model weights from step {state.get('step', '?')}")
+        log.info(f"Loaded MAIN weights from step {state.get('global_step', 'unknown')} (EMA skipped or missing)")
+        missing, unexpected = tokenizer.load_state_dict(state["model"], strict=False)
+        if missing:
+            log.warning(f"Missing keys when loading MAIN model: {missing[:5]}")
     else:
-        raise RuntimeError(f"No model weights found in {ckpt_path}")
+        # Fallback if checkpoint format is different
+        log.info("Loading raw state dict")
+        tokenizer.load_state_dict(state, strict=False)
 
     tokenizer.eval().to(device)
     log.success(f"Tokenizer loaded → {device}")
-    return tokenizer, cfg
+    return tokenizer, config_dict
 
 
 def save_recon_images(
@@ -184,7 +158,7 @@ def generate_plots(exp_dir: str, output_dir: str, log: OmniTokLogger) -> None:
         with open(metrics_path) as f:
             metrics_data = json.load(f)
         if "history" in metrics_data and metrics_data["history"]:
-            path = plots.plot_loss_curves(metrics_data["history"], title="Training Loss", fmt="pdf")
+            path = plots.plot_loss_curves(metrics_data["history"], title="Training Loss", fmt="png")
             log.info(f"Loss curves → {path}")
         else:
             log.warning("metrics.json has no history — skipping loss curve plot")
@@ -264,16 +238,20 @@ def main() -> None:
         sys.exit(1)
     log.info(f"Checkpoint: {ckpt_path}")
 
-    # --- Load model from saved config ---
-    tokenizer, cfg = load_tokenizer(exp_dir, ckpt_path, device, log)
+    # 2. Load model
+    try:
+        tokenizer, cfg = load_tokenizer(exp_dir, ckpt_path, device, log, args)
+    except Exception as e:
+        log.error(f"Failed to load tokenizer: {e}")
+        sys.exit(1)
 
     # --- Build val dataloader ---
     from omnitok.data.datasets import ImageFolderDataset
     from torch.utils.data import DataLoader
 
-    data_dir = args.data_dir or cfg.data.get("root", None)
+    data_dir = args.data_dir or cfg.data.get("val_dir", None)
     if not data_dir:
-        log.error("No data dir: pass --data-dir or set data.root in training config")
+        log.error("No data dir: pass --data-dir or set data.val_dir in training config")
         sys.exit(1)
 
     image_size = cfg.model.encoder.get("img_size", 256)
@@ -286,7 +264,19 @@ def main() -> None:
         pin_memory=(device.type == "cuda"),
         drop_last=False,
     )
-    log.info(f"Val dataset: {len(dataset)} images from {data_dir}")
+    
+    # Create train loader for linear probe
+    train_dir = data_dir.replace("val", "train") if "val" in data_dir else data_dir
+    train_dataset = ImageFolderDataset(root=train_dir, image_size=image_size, split="train")
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=(device.type == "cuda"),
+        drop_last=True,
+    )
+    log.info(f"Val dataset: {len(dataset)} images. Train dataset: {len(train_dataset)} images.")
 
     # --- Run metrics ---
     from omnitok.evaluation.evaluator import TokenizerEvaluator
@@ -304,6 +294,7 @@ def main() -> None:
     results = evaluator.evaluate(
         model=tokenizer,
         val_loader=val_loader,
+        train_loader=train_loader,
         n_batches=args.n_batches,
     )
 

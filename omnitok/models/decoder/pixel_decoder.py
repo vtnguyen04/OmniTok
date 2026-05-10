@@ -77,10 +77,11 @@ class DinoV3PixelDecoder(nn.Module):
         **ignored_kwargs,
     ):
         super().__init__()
+        self.num_latent_tokens = ignored_kwargs.get("num_latent_tokens", 0)
+        self.num_patches_1d = ignored_kwargs.get("num_patches", 256)
+
         if len(ignored_kwargs) > 0:
             logger.warning(f"Ignored kwargs: {ignored_kwargs}")
-        del ignored_kwargs
-
         norm_layer_cls = norm_layer_dict[norm_layer]
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -130,6 +131,12 @@ class DinoV3PixelDecoder(nn.Module):
 
         # 4. Final norm
         self.norm = norm_layer_cls(embed_dim)
+
+        # self.num_latent_tokens and self.num_patches_1d already assigned at the top
+        if self.num_latent_tokens > 0:
+            self.mask_token = nn.Parameter(torch.empty(1, 1, embed_dim))
+            self.latent_pos_embed = nn.Parameter(torch.zeros(1, self.num_latent_tokens, embed_dim))
+            self.mask_pos_embed = nn.Parameter(torch.zeros(1, self.num_patches_1d, embed_dim))
 
         # 5. Progressive upsampling: log2(upscale_factor) stages of PixelShuffle(2).
         # Replaces single PixelShuffle(16) which requires learning 256 sub-pixel values at once.
@@ -187,6 +194,16 @@ class DinoV3PixelDecoder(nn.Module):
         if self.proj_in.bias is not None:
             nn.init.zeros_(self.proj_in.bias)
 
+        if self.num_latent_tokens > 0:
+            nn.init.zeros_(self.mask_token)
+            nn.init.trunc_normal_(self.latent_pos_embed, std=0.02)
+            # MAE strictly requires 2D sincos pos embed for mask tokens
+            import math
+            grid_size = int(math.sqrt(self.num_patches_1d))
+            from omnitok.models.layers.embeddings import get_2d_sincos_pos_embed
+            sincos_emb = get_2d_sincos_pos_embed(self.embed_dim, grid_size)
+            self.mask_pos_embed.data.copy_(torch.from_numpy(sincos_emb).float().unsqueeze(0))
+
         # Progressive upsampler: ICNR init on each PixelShuffle(2) conv (starts as 2× nearest-neighbor)
         for stage in self.up_stages:
             ps_conv = stage[0]  # Conv2d before PixelShuffle(2)
@@ -212,15 +229,44 @@ class DinoV3PixelDecoder(nn.Module):
                 nn.init.zeros_(self.final_refine[-1].bias)
 
     def forward(self, x: Tensor) -> Tensor:
-        B, _, H, W = x.shape
+        if self.num_latent_tokens > 0 and x.ndim == 3:
+            # 1D Latent Tokens Paradigm (MAETok)
+            # x is (B, C, L)
+            B, C, L = x.shape
 
-        # 1. Project in: (B, C, H, W) -> (B, D, H, W)
-        x = self.proj_in(x)
+            # 1. Project 1D latents to decoder embed_dim
+            x = x.unsqueeze(-1) # (B, C, L, 1)
+            x = self.proj_in(x) # (B, D, L, 1)
+            x = x.squeeze(-1).transpose(1, 2) # (B, L, D)
 
-        # 2. Reshape for transformer: (B, D, H, W) -> (B, H*W, D)
-        x = x.flatten(2).transpose(1, 2)
+            # 2. Add latent positional embedding
+            x = x + self.latent_pos_embed
 
-        # 3. Get RoPE:
+            # 3. Create mask tokens for the image patches
+            num_patches = self.num_patches_1d
+            mask_tokens = self.mask_token.expand(B, num_patches, -1)
+
+            # Add spatial positional embedding to mask tokens!
+            # (Crucial: without this, all mask tokens are identical zeros and RoPE on zero q/k does nothing!)
+            mask_tokens = mask_tokens + self.mask_pos_embed
+
+            # 4. Concatenate latent tokens and mask tokens (Latents first so they act as 'prefix' for RoPE)
+            x = torch.cat([x, mask_tokens], dim=1) # (B, L + num_patches, D)
+
+            import math
+            H = W = int(math.sqrt(num_patches))
+        else:
+            # 2D Spatial Patches Paradigm (VTP/REPA)
+            B, _, H, W = x.shape
+
+            # 1. Project in: (B, C, H, W) -> (B, D, H, W)
+            x = self.proj_in(x)
+
+            # 2. Reshape for transformer: (B, D, H, W) -> (B, H*W, D)
+            x = x.flatten(2).transpose(1, 2)
+            num_patches = H * W
+
+        # 3. Get RoPE (applied to the last num_patches tokens, leaving latents as prefix)
         rope_sincos = self.rope_embed(H=H, W=W)
 
         # 4. Transformer blocks
@@ -229,6 +275,10 @@ class DinoV3PixelDecoder(nn.Module):
 
         # 5. Final Norm
         x = self.norm(x)
+
+        if self.num_latent_tokens > 0 and x.shape[1] > num_patches:
+            # Discard latent tokens (which are at the beginning), keep only the reconstructed patches
+            x = x[:, self.num_latent_tokens:]
 
         # 6. Reshape back to image-like: (B, H*W, D) -> (B, D, H, W)
         x = x.transpose(1, 2).reshape(B, self.embed_dim, H, W)
@@ -247,7 +297,7 @@ class DinoV3PixelDecoder(nn.Module):
 
     def get_last_layer(self) -> nn.Parameter:
         """Return last layer weight for adaptive gradient balancing (VA-VAE convention)."""
-        return self.final_refine[-1].weight
+        return self.proj_rgb.weight
 
 
 # Factory functions for different model sizes

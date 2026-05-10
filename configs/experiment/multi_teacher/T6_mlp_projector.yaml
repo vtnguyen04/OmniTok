@@ -1,0 +1,60 @@
+# @package _global_
+# T6: Multi-Teacher + MLP Alignment Projector (REPA-E style, ~6M params)
+# No explicit MoE routing — just a deep dense network.
+# Each teacher gets its own 3-layer MLP projector.
+#
+# Research Question: Is explicit routing (MoE) actually needed, or can a
+# deep dense MLP map the features sufficiently for multi-teacher alignment?
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T6_mlp_projector"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  projector: mlp3
+  projector_hidden_dim: 2048
+  cos_weight: 1.0
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 2
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "T6: MLP3 Alignment Projector (REPA-E style ~6M). Tests if dense MLP is sufficient vs MoE routing for multi-teacher alignment."
+tags: ["omnitok", "tokenizer", "projector_ablation", "mlp_projector"]

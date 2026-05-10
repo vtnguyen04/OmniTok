@@ -1,0 +1,14 @@
+# Disentangled Representation Alignment Config
+# Implements the semantic-aware denoising projection from Send-VAE
+# @package alignment
+type: "disentangled"
+weight: 1.0
+student_dim: 32         # Post-bottleneck latent dimension
+teacher_dim: 1024       # DINOv2 large feature dimension (adjusted dynamically)
+spatial_size: 16        # 256/16 = 16
+patch_size: 1           # Process each latent pixel
+hidden_size: 768
+projector_dim: 2048
+num_heads: 12
+path_type: "linear"
+align_from: "post_bottleneck"

@@ -1,0 +1,56 @@
+# @package _global_
+# T1b — Multi-Teacher VAE with Variational Bottleneck (Fixed GAN)
+defaults:
+  - override /model/encoder: cnn_encoder
+  - override /model/bottleneck: identity_variational
+  - override /model/decoder: cnn_decoder
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    latent_dim: 32
+  decoder:
+    z_channels: 32
+
+alignment:
+  align_from: "post_bottleneck"
+  weight: 0.1
+  adaptive_weighting: true
+
+loss:
+  reconstruction:
+    recon_type: l1
+    recon_weight: 1.0
+    perceptual_weight: 1.0  # REPA-E: 1.0
+  kl:
+    weight: 1.0e-6          # REPA-E: 1e-6
+  gan:
+    enabled: true
+    disc_start: 0           # VA-VAE: 0
+    disc_weight: 0.5        # VA-VAE: 0.5
+    lecam_weight: 0.0       # VA-VAE: 0.0 (No LeCam)
+    n_layers: 3
+
+training:
+  use_adaptive_weighting: true  # VA-VAE: true
+  max_steps: 200000
+  log_every: 10
+  save_every: 100
+  grad_accum_steps: 2
+
+data:
+  batch_size: 8
+
+scheduler:
+  warmup_steps: 500
+
+optimizer:
+  lr: 5.0e-4
+
+exp_name: "T1b_vanilla_vae_vavae_strict"
+notes: "Multi-Teacher CNN VAE. STRICTLY follows VA-VAE hyperparams: f16d32 CNN, perceptual_weight=1.0, disc_start=0, disc_weight=0.5, lecam_weight=0.0."
+tags: ["tokenizer", "vae", "baseline", "vavae_strict", "cnn"]

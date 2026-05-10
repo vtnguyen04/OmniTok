@@ -1,11 +1,10 @@
 # @package _global_
-# @package _global_
 # T10 — Best config + Linear Projector (UNE hypothesis test)
 defaults:
   - override /model/encoder: vit_large
   - override /model/bottleneck: linear
   - override /model/decoder: pixel_decoder_base
-  - override /teacher: multi_teacher
+  - override /teacher: multi_dino_siglip_sam
   - override /alignment: relational_kd
   - override /loss: standard
   - override /training: tokenizer_full
@@ -29,4 +28,5 @@ data:
   batch_size: 2
 
 exp_name: "T10_linear_projector"
-notes: "T5 + Linear projector with modular bottleneck. UNE hypothesis: linear map is sufficient."
+notes: "Architecture ablation: Use simple Linear projector instead of ViTDecoder projector"
+tags: ["tokenizer", "architecture_ablation", "linear_projector"]

@@ -12,7 +12,7 @@ dinov2:
   use_patch_tokens: true
   num_prefix_tokens: 1
 depth_anything:
-  model_name: "depth_anything_v2_vitl"
+  model_name: "depth_anything_v2_large"
   feature_dim: 1024
   freeze: true
   use_patch_tokens: true

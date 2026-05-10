@@ -104,16 +104,87 @@ def _build_teachers(cfg: DictConfig, log: OmniTokLogger):
         log.warning("No teachers could be instantiated — training without alignment")
         return None
 
-    teacher = MultiTeacher(instantiated_teachers)
+    # DO NOT use common_dim to project teachers. Teacher representations must remain intact.
+    # The student will use multiple projectors to align to each teacher's native dimension.
+    common_dim = None
+    phi_s_balancing = teacher_node.get("phi_s_balancing", True)
+
+    # Extract static loss weights from loss config (correct semantic placement)
+    loss_weights = {}
+    if "alignment_weights" in cfg.loss:
+        # Convert omegaconf dict to regular dict
+        loss_weights = dict(cfg.loss.alignment_weights)
+
+    teacher = MultiTeacher(
+        instantiated_teachers,
+        phi_s_balancing=phi_s_balancing,
+        loss_weights=loss_weights,
+    )
     teacher.eval()
     for p in teacher.parameters():
         p.requires_grad = False
+
+    # Enable gradients for PHI-S learnable parameters if present
+    if hasattr(teacher, "log_vars"):
+        for p in teacher.log_vars.parameters():
+            p.requires_grad = True
 
     log.teacher(f"Built {len(instantiated_teachers)} teachers: {list(instantiated_teachers.keys())}")
     from omnitok.training.utils import count_params
     params = count_params(teacher)
     log.teacher(f"Teacher Params (Frozen): {params.get('total_M', 0):.2f}M")
     return teacher
+
+
+def _build_teacher_router(cfg: DictConfig, teachers, log: OmniTokLogger):
+    """Build sparse teacher router from config.
+
+    Args:
+        cfg: Full Hydra config.
+        teachers: MultiTeacher instance (needed for num_teachers and student_dim).
+        log: OmniTokLogger.
+
+    Returns:
+        SparseTeacherRouter instance or None if routing is not configured.
+    """
+    teacher_node = getattr(cfg, "teacher", getattr(cfg, "teachers", None))
+    if teacher_node is None or teachers is None:
+        return None
+
+    routing_cfg = teacher_node.get("routing", None)
+    if routing_cfg is None or not routing_cfg.get("enabled", False):
+        return None
+
+    from omnitok.registry import TEACHER_ROUTER_REGISTRY
+    # Import to trigger registration
+    import omnitok.teachers.sparse_router  # noqa: F401
+
+    router_type = routing_cfg.get("type", "sparse")
+
+    # Auto-detect student_dim from encoder config
+    student_dim = cfg.model.encoder.get("embed_dim", 768)
+    # If encoder has original_embed_dim (DINOv2 bottleneck), use that
+    if cfg.model.encoder.get("original_embed_dim", None):
+        student_dim = cfg.model.encoder.original_embed_dim
+
+    router = TEACHER_ROUTER_REGISTRY.build(
+        router_type,
+        student_dim=student_dim,
+        num_teachers=teachers.num_teachers,
+        top_k=routing_cfg.get("top_k", 1),
+        temperature=routing_cfg.get("temperature", 1.0),
+        load_balance_weight=routing_cfg.get("load_balance_weight", 0.01),
+        z_loss_weight=routing_cfg.get("z_loss_weight", 0.001),
+    )
+
+    log.teacher(
+        f"Sparse Teacher Router: type={router_type}, "
+        f"top_k={routing_cfg.get('top_k', 1)}/{teachers.num_teachers}, "
+        f"lb_weight={routing_cfg.get('load_balance_weight', 0.01)}, "
+        f"z_loss={routing_cfg.get('z_loss_weight', 0.001)}"
+    )
+    return router
+
 
 def _build_alignment_loss(cfg: DictConfig, tokenizer, teachers, log: OmniTokLogger):
     """Build alignment loss from registry.
@@ -140,27 +211,41 @@ def _build_alignment_loss(cfg: DictConfig, tokenizer, teachers, log: OmniTokLogg
     kwargs.pop("type", None)
     kwargs.pop("weight", None)
     kwargs.pop("adaptive_weighting", None)
+    kwargs.pop("align_from", None)
 
     # Auto-inject dimensions if not manually overridden.
-    # Alignment uses pre-bottleneck features (REPA-E style) → student_dim = original embed_dim,
-    # NOT the bottleneck dim, so the projector maps 768→teacher_dim instead of 32→teacher_dim.
+    # Alignment uses pre-bottleneck features (REPA-E style) → student_dim = original embed_dim
     if "student_dim" not in kwargs and tokenizer is not None:
         kwargs["student_dim"] = tokenizer.encoder.original_embed_dim \
             if hasattr(tokenizer.encoder, "original_embed_dim") \
             else tokenizer.encoder.embed_dim
 
-    if "teacher_dim" not in kwargs and teachers is not None:
-        if hasattr(teachers, "feature_dim"):
-            kwargs["teacher_dim"] = teachers.feature_dim
+    from omnitok.teachers.multi_teacher import MultiTeacher
 
-    loss_fn = ALIGNMENT_REGISTRY.build(align_type, **kwargs)
-    log.loss(f"Alignment: {align_type} (weight={cfg.alignment.get('weight', 1.0)})")
-    
+    if isinstance(teachers, MultiTeacher):
+        # Build one alignment loss per teacher so the student has multiple projectors
+        loss_fn = torch.nn.ModuleDict()
+        for t_name, t_module in teachers.teachers.items():
+            t_kwargs = kwargs.copy()
+            t_kwargs["teacher_dim"] = t_module.feature_dim
+            if t_kwargs.get("student_dim", 0) != t_kwargs["teacher_dim"] and not t_kwargs.get("projector"):
+                t_kwargs["projector"] = "linear"
+            loss_fn[t_name] = ALIGNMENT_REGISTRY.build(align_type, **t_kwargs)
+        log.loss(f"Alignment: {align_type} (weight={cfg.alignment.get('weight', 1.0)}) [MultiTeacher: {list(teachers.teachers.keys())}]")
+    else:
+        if "teacher_dim" not in kwargs and teachers is not None:
+            if hasattr(teachers, "feature_dim"):
+                kwargs["teacher_dim"] = teachers.feature_dim
+        if kwargs.get("student_dim", 0) != kwargs.get("teacher_dim", 0) and not kwargs.get("projector"):
+            kwargs["projector"] = "linear"
+        loss_fn = ALIGNMENT_REGISTRY.build(align_type, **kwargs)
+        log.loss(f"Alignment: {align_type} (weight={cfg.alignment.get('weight', 1.0)})")
+
     from omnitok.training.utils import count_params
     params = count_params(loss_fn)
     if params.get('total', 0) > 0:
         log.loss(f"Alignment Projector Params: {params.get('total_M', 0):.2f}M")
-        
+
     return loss_fn
 
 def _build_losses(cfg: DictConfig, log: OmniTokLogger):
@@ -198,7 +283,7 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
                 lecam_weight=gan_cfg.get("lecam_weight", 0.01),
             )
             log.gan(f"GAN enabled (start={gan_cfg.get('disc_start', 50000)}, weight={gan_cfg.get('disc_weight', 0.5)})")
-            
+
             from omnitok.training.utils import count_params
             params = count_params(gan_loss.discriminator)
             log.gan(f"Discriminator Params: {params.get('total_M', 0):.2f}M")
@@ -214,6 +299,14 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
             )
             log.loss(f"GaussianityLoss enabled (weight={gauss_cfg.get('weight', 1e-4)})")
 
+    kl_loss = None
+    if "loss" in cfg and "kl" in cfg.loss:
+        kl_cfg = cfg.loss.kl
+        if kl_cfg.get("weight", 0.0) > 0.0:
+            from omnitok.losses.kl import KLLoss
+            kl_loss = KLLoss(weight=kl_cfg.get("weight", 1e-6))
+            log.loss(f"KLLoss enabled (weight={kl_cfg.get('weight', 1e-6)})")
+
     latent_norm_loss = None
     if "loss" in cfg and "latent_norm" in cfg.loss:
         ln_cfg = cfg.loss.latent_norm
@@ -222,7 +315,7 @@ def _build_losses(cfg: DictConfig, log: OmniTokLogger):
             latent_norm_loss = LatentNormLoss(weight=ln_cfg.get("weight", 0.01))
             log.loss(f"LatentNormLoss enabled (weight={ln_cfg.get('weight', 0.01)})")
 
-    return recon_loss, gan_loss, gaussianity_loss, latent_norm_loss
+    return recon_loss, gan_loss, gaussianity_loss, latent_norm_loss, kl_loss
 
 
 def _build_optimizer(cfg: DictConfig, model: torch.nn.Module, log: OmniTokLogger, extra_modules: dict = None):
@@ -351,9 +444,22 @@ def _build_dataloader(cfg: DictConfig, log: OmniTokLogger):
     batch_size = cfg.data.batch_size
     num_workers = cfg.data.get("num_workers", 8)
 
-    dataset = ImageFolderDataset(root=cfg.data.root, image_size=cfg.data.image_size, split="train")
+    # Get data directory from CLI args or config
+    import sys
+    data_dir = cfg.data.get("train_dir", None)
+    if not data_dir:
+        log.error("No data dir: set data.train_dir in config")
+        sys.exit(1)
 
-    log.info(f"Dataset: {len(dataset)} images from {cfg.data.root}")
+    dataset = ImageFolderDataset(root=data_dir, image_size=cfg.data.image_size, split="train")
+
+    if cfg.data.get("val_dir", None):
+        val_dir = cfg.data.get("val_dir")
+        val_dataset = ImageFolderDataset(root=val_dir, image_size=cfg.data.image_size, split="val")
+    else:
+        val_dataset = None
+
+    log.info(f"Dataset: {len(dataset)} images from {data_dir}")
     log.info(f"Batch: {batch_size} × {num_workers} workers")
 
     return DataLoader(
@@ -384,9 +490,10 @@ def _setup_research_infra(cfg: DictConfig, log: OmniTokLogger):
         project="omnitok",
         name=exp_name,
         config=OmegaConf.to_container(cfg, resolve=True),
-        tags=cfg.training.get("tags", ["omnitok"]),
+        tags=cfg.get("tags", ["omnitok"]),
+        notes=cfg.get("notes", f"Running experiment {exp_name}"),
         enabled=cfg.training.get("use_wandb", True),
-        run_id=cfg.training.get("run_id", cfg.get("exp_name")),
+        run_id=cfg.training.get("run_id", None),
     )
     if wandb_logger.run_url:
         log.info(f"WandB: {wandb_logger.run_url}")
@@ -460,34 +567,46 @@ def main(cfg: DictConfig) -> None:
     with open(os.path.join(output_dir, "config.yaml"), "w") as f:
         f.write(OmegaConf.to_yaml(cfg))
 
+    # Setup research infrastructure FIRST to avoid multiprocessing deadlocks with Dataloaders
+    wandb_logger, artifact_manager, plot_generator = _setup_research_infra(cfg, log)
+
     # Build all components with structured logging
     log.info("Building components...", phase="setup")
 
     tokenizer = _build_tokenizer(cfg, log)
     teachers = _build_teachers(cfg, log)
+    teacher_router = _build_teacher_router(cfg, teachers, log) if teachers is not None else None
     alignment_loss = _build_alignment_loss(cfg, tokenizer, teachers, log) if teachers is not None else None
-    recon_loss, gan_loss, gaussianity_loss, latent_norm_loss = _build_losses(cfg, log)
+    recon_loss, gan_loss, gaussianity_loss, latent_norm_loss, kl_loss = _build_losses(cfg, log)
 
     extra_modules = {
         "alignment_loss": alignment_loss,
         "gaussianity_loss": gaussianity_loss,
         "latent_norm_loss": latent_norm_loss,
+        "kl_loss": kl_loss,
+        "teachers": teachers,
+        "teacher_router": teacher_router,
     }
     optimizer = _build_optimizer(cfg, tokenizer, log, extra_modules=extra_modules)
     scheduler = _build_scheduler(cfg, optimizer, log)
 
     disc_optimizer = None
+    disc_scheduler = None
     if gan_loss is not None:
+        # Use lr_multipliers to scale discriminator learning rate (default 1.0)
+        disc_multiplier = 1.0
+        if hasattr(cfg.optimizer, "lr_multipliers") and cfg.optimizer.lr_multipliers is not None:
+            disc_multiplier = cfg.optimizer.lr_multipliers.get("discriminator", 1.0)
+        
+        disc_lr = cfg.optimizer.lr * disc_multiplier
         disc_optimizer = torch.optim.Adam(
             gan_loss.discriminator.parameters(),
-            lr=cfg.optimizer.lr,
+            lr=disc_lr,
             betas=(0.5, 0.999),
         )
+        disc_scheduler = _build_scheduler(cfg, disc_optimizer, log)
 
     train_dataloader = _build_dataloader(cfg, log)
-
-    # Setup research infrastructure
-    wandb_logger, artifact_manager, plot_generator = _setup_research_infra(cfg, log)
 
     # Training config dict for trainer
     train_config = OmegaConf.to_container(cfg.training, resolve=True)
@@ -498,6 +617,8 @@ def main(cfg: DictConfig) -> None:
     train_config["output_dir"] = output_dir
     train_config["log_dir"] = log_dir
     train_config["seed"] = cfg.training.get("seed", 42)
+    train_config["alignment"] = OmegaConf.to_container(cfg.alignment, resolve=True) if hasattr(cfg, "alignment") else {}
+    train_config["mask_ratio"] = cfg.get("mask_ratio", 0.0)
 
     # Build trainer
     from omnitok.training.trainer import TokenizerTrainer
@@ -505,15 +626,18 @@ def main(cfg: DictConfig) -> None:
     trainer = TokenizerTrainer(
         tokenizer=tokenizer,
         teachers=teachers,
+        teacher_router=teacher_router,
         alignment_loss=alignment_loss,
         recon_loss=recon_loss,
         gan_loss=gan_loss,
         gaussianity_loss=gaussianity_loss,
         latent_norm_loss=latent_norm_loss,
+        kl_loss=kl_loss,
         train_dataloader=train_dataloader,
         optimizer=optimizer,
         scheduler=scheduler,
         disc_optimizer=disc_optimizer,
+        disc_scheduler=disc_scheduler,
         config=train_config,
     )
 
@@ -524,11 +648,36 @@ def main(cfg: DictConfig) -> None:
 
     log.success("All components built successfully")
 
-    # Resume if last.pt exists
-    last_ckpt = os.path.join(output_dir, "checkpoints", "last.pt")
-    if os.path.isfile(last_ckpt):
-        log.info(f"Resuming from {last_ckpt}", phase="checkpoint")
-        trainer.resume(last_ckpt)
+    # Resume logic
+    resume_from = cfg.training.get("resume_from", None)
+    if resume_from and os.path.isfile(resume_from):
+        log.info(f"Resuming from specified checkpoint: {resume_from}", phase="checkpoint")
+        trainer.resume(resume_from)
+    else:
+        last_ckpt = os.path.join(output_dir, "checkpoints", "last.pt")
+        if os.path.isfile(last_ckpt):
+            log.info(f"Resuming from {last_ckpt}", phase="checkpoint")
+            trainer.resume(last_ckpt)
+
+    # Spawn background system monitor on rank 0
+    # if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+    #     import subprocess
+    #     import atexit
+    #     log.info("Spawning background system monitor (auto-managed)...", phase="setup")
+    #     import sys
+    #     cmd = [sys.executable, "omnitok/utils/system_monitor.py"]
+    #     if wandb_logger and wandb_logger._run is not None:
+    #         cmd.extend(["--run_id", wandb_logger._run.id])
+
+    #     monitor_process = subprocess.Popen(
+    #         cmd,
+    #         stdout=subprocess.DEVNULL,
+    #         stderr=subprocess.DEVNULL
+    #     )
+    #     def cleanup_monitor():
+    #         if monitor_process.poll() is None:
+    #             monitor_process.terminate()
+    #     atexit.register(cleanup_monitor)
 
     # Train
     log.info(f"Starting training: {cfg.training.max_steps} steps", phase="train")

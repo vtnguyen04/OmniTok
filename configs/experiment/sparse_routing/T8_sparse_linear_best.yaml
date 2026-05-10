@@ -1,0 +1,71 @@
+# @package _global_
+# T8: Sparse Routing + Linear Projector (Best of Both Worlds)
+# Combines the two novelties:
+#   1. Sparse Teacher Router (top_k=1) → reduces gradient conflict + compute
+#   2. Linear Projector (UNE) → minimal projector overhead
+#
+# If this matches T5 (45M MoE) in quality → proves that:
+#   - You don't need expensive MoE projectors
+#   - You don't need to compute all teachers every step
+#   - Simple is best (UNE + Sparse = SOTA efficiency)
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: linear
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+exp_name: "T8_sparse_linear_best"
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  projector: linear              # UNE-predicted optimal
+  cos_weight: 1.0
+
+teacher:
+  routing:
+    enabled: true
+    type: sparse
+    top_k: 1                    # Select 1 teacher per sample
+    temperature: 1.0
+    load_balance_weight: 0.01
+    z_loss_weight: 0.001
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.1
+    lecam_weight: 0.01
+    n_layers: 3
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  log_every: 10
+  save_every: 100
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 2
+
+optimizer:
+  lr: 1.0e-4
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+notes: "T8: Sparse Routing (top_k=1) + Linear Projector. Best-of-both-worlds: minimal compute, minimal params, maximal efficiency. If this matches T5 (45M MoE) → proves UNE + Sparse is optimal."
+tags: ["omnitok", "tokenizer", "sparse_routing", "linear_projector", "best_of_both"]

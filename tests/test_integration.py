@@ -158,14 +158,16 @@ class TestTokenizerWithTeachers:
             "spatial": FakeTeacher(feat_dim=64, p_size=8),
             "semantic": FakeTeacher(feat_dim=128, p_size=8),
         }
-        multi = MultiTeacher(teachers_dict, common_dim=32, normalize=True)
+        multi = MultiTeacher(teachers_dict, normalize=True)
 
         # Extract from all teachers
         all_feats = multi.extract_all(fake_images)
         weights = multi.get_loss_weights()
 
         assert len(all_feats) == 2
-        assert all(v.shape[-1] == 32 for v in all_feats.values())
+        # Dimensions are not common anymore: 64 and 128
+        assert all_feats["spatial"].shape[-1] == 64
+        assert all_feats["semantic"].shape[-1] == 128
         assert all(w.item() > 0 for w in weights.values())
 
     def test_relational_kd_alignment(self, tokenizer, fake_images):
@@ -283,14 +285,14 @@ class TestTrainingStep:
             "t1": FakeTeacher(feat_dim=64, p_size=8),
             "t2": FakeTeacher(feat_dim=96, p_size=8),
         }
-        multi = MultiTeacher(teachers_dict, common_dim=32)
+        multi = MultiTeacher(teachers_dict)
 
         # Projector for student features (dim=32 after bottleneck → 32 common)
         student_proj = nn.Linear(32, 32)
         align_fn = CosineAlignmentLoss()
         recon_fn = ReconstructionLoss(recon_type="l2", recon_weight=1.0, perceptual_weight=0.0)
 
-        params = list(tokenizer.parameters()) + list(student_proj.parameters()) + list(multi.projectors.parameters()) + list(multi.log_vars.parameters())
+        params = list(tokenizer.parameters()) + list(student_proj.parameters()) + list(multi.log_vars.parameters())
         optimizer = torch.optim.AdamW(params, lr=1e-4)
 
         tokenizer.train()
@@ -309,7 +311,10 @@ class TestTrainingStep:
         teacher_feats = multi.extract_all(fake_images)
         weights = multi.get_loss_weights()
         for name, t_feat in teacher_feats.items():
-            a_loss = align_fn(student_feat, t_feat)
+            # mock projection to teacher dim
+            temp_proj = nn.Linear(32, t_feat.shape[-1]).to(fake_images.device)
+            mapped_feat = temp_proj(student_feat)
+            a_loss = align_fn(mapped_feat, t_feat)
             total_loss = total_loss + weights[name] * a_loss
         total_loss = total_loss + multi.get_regularization()
 

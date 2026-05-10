@@ -129,9 +129,16 @@ class DinoVisionTransformerWithBottleneck(DinoVisionTransformer):
                     "Pass model_name explicitly."
                 )
 
-        logger.info(f"Loading pretrained DINOv2: {model_name}")
-        dino = torch.hub.load("facebookresearch/dinov2", model_name, verbose=False)
-        dino_state = dino.state_dict()
+        if model_name is not None and model_name.startswith("timm:"):
+            import timm
+            timm_name = model_name.split("timm:")[1]
+            logger.info(f"Loading pretrained from timm: {timm_name}")
+            dino = timm.create_model(timm_name, pretrained=True)
+            dino_state = dino.state_dict()
+        else:
+            logger.info(f"Loading pretrained DINOv2: {model_name}")
+            dino = torch.hub.load("facebookresearch/dinov2", model_name, verbose=False)
+            dino_state = dino.state_dict()
         our_state = self.state_dict()
 
         # Handle pos_embed interpolation
@@ -215,24 +222,35 @@ class DinoVisionTransformerWithBottleneck(DinoVisionTransformer):
 
     def _process_output_dict(self, output_dict):
         # Preserve pre-bottleneck patch tokens for alignment loss (REPA-E style).
-        # Alignment uses the full encoder representation (original_embed_dim) so the
-        # projector maps 768→teacher_dim rather than 32→teacher_dim, giving much richer signal.
         output_dict["x_norm_patchtokens_raw"] = output_dict["x_norm_patchtokens"]
 
-        # Apply bottleneck — these compressed features feed the decoder
+        # Apply bottleneck
         cls_token = self._apply_feature_bottleneck(output_dict["x_norm_clstoken"])
-        patch_tokens = output_dict["x_norm_patchtokens"]
-        batch_size, num_patches, _ = patch_tokens.shape
 
-        # DEBUG
-        # logger.info(f"Applying bottleneck: {patch_tokens.shape} -> {self.num_features}")
+        # If we have 1D Latent Tokens (MAETok Paradigm 2), bottleneck them instead of patches
+        if "x_norm_latenttokens" in output_dict:
+            latent_tokens = output_dict["x_norm_latenttokens"]
+            batch_size, num_latents, _ = latent_tokens.shape
+            latent_tokens = self.feature_bottleneck(latent_tokens.reshape(-1, self.original_embed_dim))
+            latent_tokens = latent_tokens.reshape(batch_size, num_latents, self.num_features)
+            output_dict["x_norm_latenttokens"] = latent_tokens
 
-        patch_tokens = self.feature_bottleneck(patch_tokens.reshape(-1, self.original_embed_dim))
-        patch_tokens = patch_tokens.reshape(batch_size, num_patches, self.num_features)
+            # The patches might still be passed down (e.g. for Dense Alignment or bypassing),
+            # so we optionally bottleneck them too (or leave them as raw, but usually we just bottleneck the latents).
+            # To be safe, we also bottleneck the patches if needed.
+            patch_tokens = output_dict["x_norm_patchtokens"]
+            batch_size, num_patches, _ = patch_tokens.shape
+            patch_tokens = self.feature_bottleneck(patch_tokens.reshape(-1, self.original_embed_dim))
+            patch_tokens = patch_tokens.reshape(batch_size, num_patches, self.num_features)
+            output_dict["x_norm_patchtokens"] = patch_tokens
+        else:
+            patch_tokens = output_dict["x_norm_patchtokens"]
+            batch_size, num_patches, _ = patch_tokens.shape
+            patch_tokens = self.feature_bottleneck(patch_tokens.reshape(-1, self.original_embed_dim))
+            patch_tokens = patch_tokens.reshape(batch_size, num_patches, self.num_features)
+            output_dict["x_norm_patchtokens"] = patch_tokens
 
         output_dict["x_norm_clstoken"] = cls_token
-        output_dict["x_norm_patchtokens"] = patch_tokens
-
         return output_dict
 
     def get_intermediate_layers(

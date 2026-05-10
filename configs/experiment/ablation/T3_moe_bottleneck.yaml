@@ -1,0 +1,50 @@
+# @package _global_
+# Ablation: MoE Cross-Attention Bottleneck (64-dim output)
+# Replaces simple Linear bottleneck with Perceiver-style MoE Cross-Attention.
+# This tests whether learned bidirectional read-write with expert routing
+# preserves more spatial/semantic information than point-wise linear projection.
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: moe_crossattn
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: dinov2_base
+  - override /alignment: relational_kd
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  bottleneck:
+    in_dim: 768
+    latent_dim: 64
+    num_queries: 256
+    num_blocks: 2
+    num_experts: 4
+    top_k: 2
+  decoder:
+    in_chans: 64
+
+alignment:
+  student_dim: 768
+  cos_weight: 1.0
+
+loss:
+  gan:
+    enabled: true
+    disc_start: 5000
+    disc_weight: 0.5
+
+training:
+  max_steps: 20000
+  use_adaptive_weighting: false
+  resume_from: null
+  save_every: 100
+
+optimizer:
+  lr_multipliers:
+    "encoder": 0.1
+    "decoder": 1.0
+
+exp_name: "T3_moe_bottleneck"
+notes: "Ablation: MoE Cross-Attention Bottleneck vs Linear Bottleneck. Tests Perceiver-style bidirectional read-write with expert routing for richer information compression at 64-dim."
+tags: ["ablation", "moe_bottleneck", "single_teacher"]

@@ -12,7 +12,7 @@ kl:
 gan:
   enabled: true
   n_layers: 3
-  disc_start: 50000        # steps before discriminator kicks in
+  disc_start: 5000        # steps before discriminator kicks in
   disc_weight: 0.5
   lecam_weight: 0.01       # LeCam regularization (from REPA-E)
 

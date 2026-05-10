@@ -1,0 +1,61 @@
+# @package _global_
+# T1b — Multi-Teacher VAE with Variational Bottleneck (Fixed GAN)
+defaults:
+  - override /model/encoder: vit_base
+  - override /model/bottleneck: variational
+  - override /model/decoder: pixel_decoder_base
+  - override /teacher: multi_dino_siglip_sam
+  - override /alignment: cosine
+  - override /loss: standard
+  - override /training: tokenizer_full
+  - _self_
+
+model:
+  encoder:
+    pretrained: "dinov2_vitb14"
+  bottleneck:
+    latent_dim: 32
+  decoder:
+    in_chans: 32
+
+alignment:
+  weight: 0.1
+  adaptive_weighting: true
+  student_dim: 768
+
+loss:
+  reconstruction:
+    recon_type: l1
+    recon_weight: 1.0
+    perceptual_weight: 1.0  # REPA-E: 1.0
+  kl:
+    weight: 1.0e-6          # REPA-E: 1e-6
+  gan:
+    enabled: true
+    disc_start: 0           # REPA-E: 0
+    disc_weight: 0.1        # REPA-E: 0.1
+    lecam_weight: 0.0       # REPA-E: 0.0 (No LeCam)
+    n_layers: 3
+
+training:
+  use_adaptive_weighting: false  # REPA-E: false (Uses fixed disc_weight=0.1)
+  max_steps: 20000
+  log_every: 10
+  save_every: 100
+  grad_accum_steps: 1
+
+scheduler:
+  warmup_steps: 500
+
+data:
+  batch_size: 16
+
+optimizer:
+  lr: 5.0e-4
+  lr_multipliers:
+    "encoder": 0.01
+    "decoder": 1.0
+
+exp_name: "T1b_vanilla_vae_high_perceptual_early_gan"
+notes: "Multi-Teacher VAE. STRICTLY follows REPA-E hyperparams: perceptual_weight=1.0, disc_start=0, disc_weight=0.1, lecam_weight=0.0, latent_dim=32, no adaptive weighting."
+tags: ["tokenizer", "vae", "baseline", "repa_e_strict"]

@@ -2,15 +2,17 @@
 # 200K steps ≈ ~100 epochs on ImageNet, matches VTP/VA-VAE protocols
 # @package training
 max_steps: 200000
-seed: 42
+num_workers: 20
 mixed_precision: "bf16"
 grad_accum_steps: 1
 grad_clip: 1.0
 ema_decay: 0.9999
 log_every: 100
-save_every: 10000
+save_every: 100
 use_wandb: true
 metrics_window: 100
 exp_name: "omnitok"
 verbose: false
 use_adaptive_weighting: false  # Turn off to avoid OOM from massive double-backward graph traversals
+batch_size: 16
+

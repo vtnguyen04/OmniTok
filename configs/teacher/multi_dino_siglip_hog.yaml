@@ -1,0 +1,25 @@
+# Multi-teacher: DINOv2-L + SigLIP-L + HOG with PHI-S balancing
+# MAETok experiment suite
+# @package teacher
+enabled: true
+names: ["dinov2", "siglip", "hog"]
+common_dim: 1024
+phi_s_balancing: true    # RADIO-style adaptive loss weighting
+
+dinov2:
+  model_name: "dinov2_vitl14"
+  feature_dim: 1024
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 1
+
+siglip:
+  model_name: "siglip_vit_so400m_14_384"
+  feature_dim: 1152
+  freeze: true
+  use_patch_tokens: true
+  num_prefix_tokens: 0
+
+hog:
+  feature_dim: 108
+  freeze: true

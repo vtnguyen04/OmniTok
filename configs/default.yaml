@@ -15,8 +15,8 @@ defaults:
   - optimizer: adamw
   - scheduler: cosine
   - data: imagenet
-  - experiment: null
   - _self_
+  - experiment: null
 
 # --- Experiment identity ---
 exp_name: "omnitok_default"

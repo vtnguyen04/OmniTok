@@ -64,7 +64,7 @@ class CosineAlignmentLoss(BaseAlignmentLoss):
             Scalar loss (lower = better alignment).
         """
         if self.projector is not None:
-            student_features = self.projector(student_features)
+            student_features = self.projector(student_features, mask=mask, teacher_cond=teacher_features)
 
         student_norm = F.normalize(student_features, dim=-1)
         teacher_norm = F.normalize(teacher_features.detach(), dim=-1)
@@ -84,9 +84,35 @@ class CosineAlignmentLoss(BaseAlignmentLoss):
 class MSEAlignmentLoss(BaseAlignmentLoss):
     """Simple MSE alignment loss between features."""
 
+    def __init__(
+        self,
+        projector: str = None,
+        student_dim: int = 64,
+        teacher_dim: int = 1024,
+        projector_hidden_dim: int = 2048,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.projector_type = projector
+        if projector and projector != "none":
+            from omnitok.registry import PROJECTOR_REGISTRY
+            self.projector = PROJECTOR_REGISTRY.build(
+                projector,
+                in_dim=student_dim,
+                out_dim=teacher_dim,
+                hidden_dim=projector_hidden_dim if projector_hidden_dim > 0 else 0,
+            )
+        else:
+            self.projector = None
+
     def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        if hasattr(self, "projector") and self.projector is not None:
+            student_features = self.projector(student_features, mask=mask, teacher_cond=teacher_features)
         if mask is not None:
-            return (F.mse_loss(student_features, teacher_features.detach(), reduction="none") * mask.unsqueeze(-1)).mean()
+            per_elem = F.mse_loss(
+                student_features, teacher_features.detach(), reduction="none"
+            )
+            return (per_elem * mask.unsqueeze(-1)).mean()
         return F.mse_loss(student_features, teacher_features.detach())
 
 
@@ -96,5 +122,8 @@ class SmoothL1AlignmentLoss(BaseAlignmentLoss):
 
     def compute(self, student_features: Tensor, teacher_features: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         if mask is not None:
-            return (F.smooth_l1_loss(student_features, teacher_features.detach(), reduction="none") * mask.unsqueeze(-1)).mean()
+            per_elem = F.smooth_l1_loss(
+                student_features, teacher_features.detach(), reduction="none"
+            )
+            return (per_elem * mask.unsqueeze(-1)).mean()
         return F.smooth_l1_loss(student_features, teacher_features.detach())

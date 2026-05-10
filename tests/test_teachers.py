@@ -84,13 +84,13 @@ class TestMultiTeacher:
             "t1": FakeTeacher(feat_dim=64),
             "t2": FakeTeacher(feat_dim=128),
         }
-        multi = MultiTeacher(teachers, common_dim=32)
+        multi = MultiTeacher(teachers)
         x = torch.randn(2, 3, 64, 64)
         feats = multi.extract_all(x)
         assert "t1" in feats and "t2" in feats
-        # Both projected to common_dim=32
-        assert feats["t1"].shape[-1] == 32
-        assert feats["t2"].shape[-1] == 32
+        # Verify original dimensions are preserved
+        assert feats["t1"].shape[-1] == 64
+        assert feats["t2"].shape[-1] == 128
 
     def test_loss_weights(self):
         """PHI-S loss weights are positive scalars."""
